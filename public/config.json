@@ -1,0 +1,29 @@
+{
+  "noise_sigma": 0.01,
+  "ema_alpha": 0.01,
+  "stitchC0": true,
+  "stitchC1": true,
+  "pnx": 32,
+  "pny": 32,
+  "basis": "bezier",
+  "fps": 30,
+  "heightScale": 2.0,
+  "colorMode": true,
+  
+  "craterEnable": false,
+  "craterCenterX": 0.0,
+  "craterCenterZ": 0.0,
+  "craterRadius": 0.35,
+  "craterDepth": 0.20,
+
+  "pid": {
+  "enabled": true,
+  "hz": 50,
+  "kp": 2.0,
+  "ki": 0.0,
+  "kd": 0.2,
+  "output_limit": 0.2,
+  "integral_limit": 1.0,
+  "target_amp": 0.02
+  }
+}
