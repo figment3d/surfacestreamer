@@ -581,6 +581,7 @@ function sendCfgUpdate(obj) {
 
 function connect() {
   ws = new WebSocket("ws://localhost:8765");
+  window.ws = ws;
   ws.binaryType = "arraybuffer";
 
   ws.onopen = () => {
@@ -790,9 +791,12 @@ function render() {
 // ======================================================
 async function boot() {
   cfg = await loadConfig();
-
+  window.cfg = cfg;
+  
   // Apply config defaults (baseline)
   if (typeof cfg.heightScale === "number") heightScale = cfg.heightScale;
+  heightScale = Math.max(0.02, Math.min(20.0, heightScale));
+  
   if (typeof cfg.tess === "number") {
     TESS = Math.max(8, Math.min(256, cfg.tess | 0));
     uploadPatchMesh(TESS);
