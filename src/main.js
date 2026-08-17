@@ -585,7 +585,7 @@ let i2cEnabled = true;
 let spiEnabled = true;
 let tcpEnabled = true;
 let acceptOneFrame = false;
-
+let uartEnabled = true;
 
 let udpCheckbox = null;
 let udpStatus = null;
@@ -595,6 +595,8 @@ let spiCheckbox = null;
 let spiStatus = null;
 let tcpCheckbox = null;
 let tcpStatus = null;
+let uartCheckbox = null;
+let uartStatus = null;
 
 function updateUdpStatus() {
   if (!udpStatus) return;
@@ -660,6 +662,29 @@ function updateTcpStatus() {
   }
 }
 
+function updateUartStatus() {
+  if (!uartStatus) return;
+
+  const showDiagnostics = uartEnabled;
+
+  if (udpStatus) udpStatus.style.display = showDiagnostics ? "block" : "none";
+  if (i2cStatus) i2cStatus.style.display = showDiagnostics ? "block" : "none";
+  if (spiStatus) spiStatus.style.display = showDiagnostics ? "block" : "none";
+  if (tcpStatus) tcpStatus.style.display = showDiagnostics ? "block" : "none";
+
+  if (uartEnabled) {
+    uartStatus.innerHTML =
+      "<b>STATUS:</b> ONLINE<br>" +
+      "<b>CAPABILITY:</b> Maintenance console available<br>" +
+      "<b>EFFECT:</b> Detailed subsystem diagnostics are visible.";
+  } else {
+    uartStatus.innerHTML =
+      "<b>STATUS:</b> DIAGNOSTICS DISABLED<br>" +
+      "<b>CAPABILITY:</b> Maintenance console unavailable<br>" +
+      "<b>EFFECT:</b> Detailed subsystem reporting is hidden.";
+  }
+}
+
 function createSitlPanel() {
   const panel = document.createElement("div");
 
@@ -716,6 +741,16 @@ function createSitlPanel() {
       <div id="tcpStatus"
           style="margin-top:6px; line-height:1.5;"></div>
     </div>
+
+    <div style="margin-top:12px;">
+      <label title="UART provides a maintenance and diagnostic console. Disable it to hide detailed subsystem reporting.">
+        <input id="uartEnabled" type="checkbox">
+        UART Diagnostics
+      </label>
+
+      <div id="uartStatus"
+          style="margin-top:6px; line-height:1.5;"></div>
+    </div>
   `;
 
   document.body.appendChild(panel);
@@ -732,10 +767,14 @@ function createSitlPanel() {
   tcpCheckbox = document.getElementById("tcpEnabled");
   tcpStatus = document.getElementById("tcpStatus");
 
+  uartCheckbox = document.getElementById("uartEnabled");
+  uartStatus = document.getElementById("uartStatus");
+
   udpCheckbox.checked = udpEnabled;
   i2cCheckbox.checked = i2cEnabled;
   spiCheckbox.checked = spiEnabled;
   tcpCheckbox.checked = tcpEnabled;
+  uartCheckbox.checked = uartEnabled;
 
   udpCheckbox.addEventListener("change", () => {
     udpEnabled = udpCheckbox.checked;
@@ -771,10 +810,16 @@ function createSitlPanel() {
     updateTcpStatus();
   });
 
+  uartCheckbox.addEventListener("change", () => {
+    uartEnabled = uartCheckbox.checked;
+    updateUartStatus();
+  });
+
   updateUdpStatus();
   updateI2cStatus();
   updateSpiStatus();
   updateTcpStatus();
+  updateUartStatus();
 }
 
 function sendCfgUpdate(obj) {
