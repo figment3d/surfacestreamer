@@ -573,7 +573,75 @@ function getViewParams() {
 // ======================================================
 let ws = null;
 let cfg = null;
+let udpEnabled = true;
 
+let udpCheckbox = null;
+let udpStatus = null;
+
+function updateUdpStatus() {
+  if (!udpStatus) return;
+
+  if (udpEnabled) {
+    udpStatus.innerHTML =
+      "<b>STATUS:</b> ONLINE<br>" +
+      "<b>SOURCE:</b> External UDP<br>" +
+      "Surface receives network telemetry.";
+  } else {
+    udpStatus.innerHTML =
+      "<b>STATUS:</b> NETWORK DISABLED<br>" +
+      "<b>SOURCE:</b> Procedural SITL<br>" +
+      "External telemetry lost; simulated source active.";
+  }
+}
+
+function createSitlPanel() {
+  const panel = document.createElement("div");
+
+  panel.style.position = "fixed";
+  panel.style.top = "16px";
+  panel.style.left = "16px";
+  panel.style.zIndex = "20";
+  panel.style.padding = "12px 14px";
+  panel.style.background = "rgba(0, 0, 0, 0.72)";
+  panel.style.color = "white";
+  panel.style.fontFamily = "Consolas, monospace";
+  panel.style.fontSize = "14px";
+  panel.style.borderRadius = "8px";
+  panel.style.minWidth = "300px";
+
+  panel.innerHTML = `
+    <div style="font-weight:bold; margin-bottom:8px;">
+      EMBEDDED SYSTEMS
+    </div>
+
+    <label title="Receives high-rate surface data from an external source. Disable UDP to fall back to procedural Software-In-The-Loop (SITL) data.">
+      <input id="udpEnabled" type="checkbox">
+      UDP Telemetry
+    </label>
+
+    <div id="udpStatus" style="margin-top:10px; line-height:1.5;"></div>
+  `;
+
+  document.body.appendChild(panel);
+
+  udpCheckbox = document.getElementById("udpEnabled");
+  udpStatus = document.getElementById("udpStatus");
+
+  udpCheckbox.checked = udpEnabled;
+
+  udpCheckbox.addEventListener("change", () => {
+    udpEnabled = udpCheckbox.checked;
+
+    if (cfg) {
+      cfg.data_source = udpEnabled ? "udp" : "sim";
+    }
+
+    sendCfgUpdate({ udp_enabled: udpEnabled });
+    updateUdpStatus();
+  });
+
+  updateUdpStatus();
+}
 function sendCfgUpdate(obj) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type:"cfg", ...obj }));
@@ -591,6 +659,8 @@ function connect() {
     if (cfg) {
       if (typeof cfg.noise_sigma === "number") sendCfgUpdate({ noise_sigma: cfg.noise_sigma });
       if (typeof cfg.ema_alpha === "number")  sendCfgUpdate({ ema_alpha: cfg.ema_alpha });
+
+      sendCfgUpdate({ udp_enabled: udpEnabled });
     }
   };
 
@@ -793,6 +863,9 @@ async function boot() {
   cfg = await loadConfig();
   window.cfg = cfg;
   
+  udpEnabled = cfg.data_source === "udp";
+  createSitlPanel();
+
   // Apply config defaults (baseline)
   if (typeof cfg.heightScale === "number") heightScale = cfg.heightScale;
   heightScale = Math.max(0.02, Math.min(20.0, heightScale));

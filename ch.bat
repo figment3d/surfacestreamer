@@ -9,6 +9,9 @@ timeout /t 2 >nul
 REM ---- Launch Edge to viewer ----
 start msedge http://localhost:5173
 
+REM ---- Launch Fake MCU UDP source ----
+start "Fake MCU UDP" cmd /k "python fake_mcu_udp.py"
+
 REM ---- Run Python server here ----
 if "%1"=="" (
     python ws_bezier_server.py

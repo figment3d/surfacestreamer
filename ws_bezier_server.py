@@ -315,7 +315,7 @@ async def handler(ws):
     print("Clients now:", len(clients))
 
     async def rx_loop():
-        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base
+        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base, DATA_SOURCE
         try:
             async for msg in ws:
                 if isinstance(msg, (bytes, bytearray)):
@@ -345,7 +345,11 @@ async def handler(ws):
                     CTRL_GAIN = float(j["ctrl_gain"])
                     CTRL_GAIN = max(CTRL_GAIN_MIN, min(CTRL_GAIN_MAX, CTRL_GAIN))
                     print(f"[LIVE] ctrl_gain={CTRL_GAIN:.3f}")
-
+                    
+                if "udp_enabled" in j:
+                    DATA_SOURCE = "udp" if bool(j["udp_enabled"]) else "sim"
+                    _prev_base = None
+                    print(f"[LIVE] data_source={DATA_SOURCE}")
         except websockets.ConnectionClosed:
             pass
 
@@ -366,8 +370,7 @@ async def handler(ws):
 async def main():
     global broadcast_task
 
-    if DATA_SOURCE == "udp":
-        asyncio.create_task(udp_receiver())
+    asyncio.create_task(udp_receiver())
 
     if broadcast_task is None:
         broadcast_task = asyncio.create_task(broadcast_loop())
