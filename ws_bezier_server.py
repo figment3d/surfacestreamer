@@ -239,7 +239,7 @@ def make_patch_ctrl16_bezier(t: float) -> np.ndarray:
 # ============================================================
 clients: set = set()
 broadcast_task: asyncio.Task | None = None
-
+pending_source_change: str | None = None
 
 async def broadcast_loop():
     """
@@ -247,7 +247,7 @@ async def broadcast_loop():
     Payload format is EXACTLY what main.js expects:
       [u32 pnx][u32 pny][float32 * (pnx*pny*16)]
     """
-    global _last_pid_t, CTRL_GAIN
+    global _last_pid_t, CTRL_GAIN, pending_source_change
 
     next_t = time.perf_counter()
 
@@ -289,17 +289,31 @@ async def broadcast_loop():
         else:
             await asyncio.sleep(0.05)
             continue
+            
+        source_changed = pending_source_change
 
         if clients:
             dead = []
+
             for ws in list(clients):
                 try:
+                    if source_changed is not None:
+                        await ws.send(json.dumps({
+                            "type": "source_changed",
+                            "data_source": source_changed
+                        }))
+
                     await ws.send(payload)
+
                 except Exception:
                     dead.append(ws)
+
             for ws in dead:
                 clients.discard(ws)
 
+            if source_changed is not None:
+                pending_source_change = None
+                
         # pacing
         next_t += 1.0 / max(1, FPS)
         d = next_t - time.perf_counter()
@@ -315,7 +329,7 @@ async def handler(ws):
     print("Clients now:", len(clients))
 
     async def rx_loop():
-        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base, DATA_SOURCE
+        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change
         try:
             async for msg in ws:
                 if isinstance(msg, (bytes, bytearray)):
@@ -349,7 +363,9 @@ async def handler(ws):
                 if "udp_enabled" in j:
                     DATA_SOURCE = "udp" if bool(j["udp_enabled"]) else "sim"
                     _prev_base = None
+                    pending_source_change = DATA_SOURCE
                     print(f"[LIVE] data_source={DATA_SOURCE}")
+
         except websockets.ConnectionClosed:
             pass
 

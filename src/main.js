@@ -574,9 +574,13 @@ function getViewParams() {
 let ws = null;
 let cfg = null;
 let udpEnabled = true;
+let i2cEnabled = true;
+let acceptOneFrame = false;
 
 let udpCheckbox = null;
 let udpStatus = null;
+let i2cCheckbox = null;
+let i2cStatus = null;
 
 function updateUdpStatus() {
   if (!udpStatus) return;
@@ -591,6 +595,22 @@ function updateUdpStatus() {
       "<b>STATUS:</b> NETWORK DISABLED<br>" +
       "<b>SOURCE:</b> Procedural SITL<br>" +
       "External telemetry lost; simulated source active.";
+  }
+}
+
+function updateI2cStatus() {
+  if (!i2cStatus) return;
+
+  if (i2cEnabled) {
+    i2cStatus.innerHTML =
+      "<b>STATUS:</b> ONLINE<br>" +
+      "<b>DEVICE:</b> ToF Range Sensor<br>" +
+      "Fresh surface measurements are available.";
+  } else {
+    i2cStatus.innerHTML =
+      "<b>STATUS:</b> SENSOR BUS DISABLED<br>" +
+      "<b>DEVICE:</b> ToF Sensor Unavailable<br>" +
+      "<b>EFFECT:</b> Surface frozen at last valid measurement.";
   }
 }
 
@@ -620,6 +640,15 @@ function createSitlPanel() {
     </label>
 
     <div id="udpStatus" style="margin-top:10px; line-height:1.5;"></div>
+
+    <div style="margin-top:12px;">
+      <label title="I²C connects the controller to range sensors. Disable it to simulate loss of fresh sensor measurements.">
+        <input id="i2cEnabled" type="checkbox">
+        I²C Range Sensor
+      </label>
+
+      <div id="i2cStatus" style="margin-top:6px; line-height:1.5;"></div>
+    </div>
   `;
 
   document.body.appendChild(panel);
@@ -627,7 +656,11 @@ function createSitlPanel() {
   udpCheckbox = document.getElementById("udpEnabled");
   udpStatus = document.getElementById("udpStatus");
 
+  i2cCheckbox = document.getElementById("i2cEnabled");
+  i2cStatus = document.getElementById("i2cStatus");
+  
   udpCheckbox.checked = udpEnabled;
+  i2cCheckbox.checked = i2cEnabled;
 
   udpCheckbox.addEventListener("change", () => {
     udpEnabled = udpCheckbox.checked;
@@ -635,13 +668,20 @@ function createSitlPanel() {
     if (cfg) {
       cfg.data_source = udpEnabled ? "udp" : "sim";
     }
-
+  
     sendCfgUpdate({ udp_enabled: udpEnabled });
     updateUdpStatus();
   });
 
+  i2cCheckbox.addEventListener("change", () => {
+    i2cEnabled = i2cCheckbox.checked;
+    updateI2cStatus();
+  });
+
   updateUdpStatus();
+  updateI2cStatus();
 }
+
 function sendCfgUpdate(obj) {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type:"cfg", ...obj }));
@@ -672,9 +712,32 @@ function connect() {
   ws.onerror = (e) => console.log("WS error", e);
 
   ws.onmessage = (ev) => {
+    // Handle control/status messages from the server
+    if (typeof ev.data === "string") {
+      try {
+        const msg = JSON.parse(ev.data);
+
+        if (msg.type === "source_changed") {
+          console.log("Source changed:", msg.data_source);
+
+          if (!i2cEnabled) {
+            acceptOneFrame = true;
+          }
+        }
+      } catch (e) {
+        console.log("Bad WS text message", e);
+      }
+
+      return;
+    }
+
     const buf = ev.data;
     if (!(buf instanceof ArrayBuffer)) return;
     if (buf.byteLength < 8) return;
+
+    if (!i2cEnabled && !acceptOneFrame) return;
+
+    acceptOneFrame = false;
 
     const dv = new DataView(buf);
     const pnx = dv.getUint32(0, true);
