@@ -4,8 +4,8 @@
   "udp_port": 9999,
   "udp_fps": 30,
 
-  "noise_sigma": 0.01,
-  "ema_alpha": 0.01,
+  "noise_sigma": 0.00,
+  "ema_alpha": 1.00,
   "stitchC0": true,
   "stitchC1": true,
   "pnx": 31,
@@ -22,7 +22,7 @@
   "craterDepth": 0.20,
 
   "pid": {
-  "enabled": true,
+  "enabled": false,
   "hz": 50,
   "kp": 2.0,
   "ki": 0.0,
