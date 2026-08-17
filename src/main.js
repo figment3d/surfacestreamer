@@ -585,6 +585,7 @@ let i2cEnabled = true;
 let spiEnabled = true;
 let tcpEnabled = true;
 let acceptOneFrame = false;
+let canEnabled = true;
 let uartEnabled = true;
 
 let udpCheckbox = null;
@@ -595,6 +596,8 @@ let spiCheckbox = null;
 let spiStatus = null;
 let tcpCheckbox = null;
 let tcpStatus = null;
+let canCheckbox = null;
+let canStatus = null;
 let uartCheckbox = null;
 let uartStatus = null;
 
@@ -662,15 +665,26 @@ function updateTcpStatus() {
   }
 }
 
+function updateCanStatus() {
+  if (!canStatus) return;
+
+  if (canEnabled) {
+    canStatus.innerHTML =
+      "<b>STATUS:</b> ONLINE<br>" +
+      "<b>CAPABILITY:</b> Subsystem health reporting available<br>" +
+      "<b>EFFECT:</b> Detailed component and BIT status is available.";
+  } else {
+    canStatus.innerHTML =
+      "<b>STATUS:</b> BUS OFFLINE<br>" +
+      "<b>HEALTH:</b> UNKNOWN<br>" +
+      "<b>EFFECT:</b> Detailed subsystem health is unavailable.";
+  }
+
+  updateDiagnosticDisplay();
+}
+
 function updateUartStatus() {
   if (!uartStatus) return;
-
-  const showDiagnostics = uartEnabled;
-
-  if (udpStatus) udpStatus.style.display = showDiagnostics ? "block" : "none";
-  if (i2cStatus) i2cStatus.style.display = showDiagnostics ? "block" : "none";
-  if (spiStatus) spiStatus.style.display = showDiagnostics ? "block" : "none";
-  if (tcpStatus) tcpStatus.style.display = showDiagnostics ? "block" : "none";
 
   if (uartEnabled) {
     uartStatus.innerHTML =
@@ -683,6 +697,50 @@ function updateUartStatus() {
       "<b>CAPABILITY:</b> Maintenance console unavailable<br>" +
       "<b>EFFECT:</b> Detailed subsystem reporting is hidden.";
   }
+
+  updateDiagnosticDisplay();
+}
+
+function updateDiagnosticDisplay() {
+  const subsystemStatuses = [
+    udpStatus,
+    i2cStatus,
+    spiStatus,
+    tcpStatus
+  ];
+
+  // UART OFF: no subsystem reports at all
+  if (!uartEnabled) {
+    for (const status of subsystemStatuses) {
+      if (status) status.style.display = "none";
+    }
+
+    // CAN report is also hidden because UART diagnostics are unavailable
+    if (canStatus) canStatus.style.display = "none";
+    return;
+  }
+
+  // UART ON: reports are visible
+  for (const status of subsystemStatuses) {
+    if (status) status.style.display = "block";
+  }
+
+  if (canStatus) canStatus.style.display = "block";
+
+  // CAN OFF: collapse subsystem reports to one-line health reports
+  if (!canEnabled) {
+    if (udpStatus) udpStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
+    if (i2cStatus) i2cStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
+    if (spiStatus) spiStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
+    if (tcpStatus) tcpStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
+    return;
+  }
+
+  // CAN ON: restore the normal detailed reports
+  updateUdpStatus();
+  updateI2cStatus();
+  updateSpiStatus();
+  updateTcpStatus();
 }
 
 function createSitlPanel() {
@@ -743,6 +801,16 @@ function createSitlPanel() {
     </div>
 
     <div style="margin-top:12px;">
+      <label title="CAN provides distributed subsystem health and BIT reporting. Disable it to simulate loss of the subsystem health bus.">
+        <input id="canEnabled" type="checkbox">
+        CAN Subsystem Bus
+      </label>
+
+      <div id="canStatus"
+          style="margin-top:6px; line-height:1.5;"></div>
+    </div>
+
+    <div style="margin-top:12px;">
       <label title="UART provides a maintenance and diagnostic console. Disable it to hide detailed subsystem reporting.">
         <input id="uartEnabled" type="checkbox">
         UART Diagnostics
@@ -767,6 +835,9 @@ function createSitlPanel() {
   tcpCheckbox = document.getElementById("tcpEnabled");
   tcpStatus = document.getElementById("tcpStatus");
 
+  canCheckbox = document.getElementById("canEnabled");
+  canStatus = document.getElementById("canStatus");
+
   uartCheckbox = document.getElementById("uartEnabled");
   uartStatus = document.getElementById("uartStatus");
 
@@ -774,6 +845,7 @@ function createSitlPanel() {
   i2cCheckbox.checked = i2cEnabled;
   spiCheckbox.checked = spiEnabled;
   tcpCheckbox.checked = tcpEnabled;
+  canCheckbox.checked = canEnabled;
   uartCheckbox.checked = uartEnabled;
 
   udpCheckbox.addEventListener("change", () => {
@@ -785,19 +857,20 @@ function createSitlPanel() {
   
     sendCfgUpdate({ udp_enabled: udpEnabled });
     updateUdpStatus();
+    updateDiagnosticDisplay();
   });
 
   i2cCheckbox.addEventListener("change", () => {
     i2cEnabled = i2cCheckbox.checked;
     updateI2cStatus();
+    updateDiagnosticDisplay();
   });
 
   spiCheckbox.addEventListener("change", () => {
     spiEnabled = spiCheckbox.checked;
-
     colorMode = spiEnabled ? 1 : 0;
-
     updateSpiStatus();
+    updateDiagnosticDisplay();
   });
 
   tcpCheckbox.addEventListener("change", () => {
@@ -808,6 +881,12 @@ function createSitlPanel() {
     }
 
     updateTcpStatus();
+    updateDiagnosticDisplay();
+  });
+
+  canCheckbox.addEventListener("change", () => {
+    canEnabled = canCheckbox.checked;
+    updateCanStatus();
   });
 
   uartCheckbox.addEventListener("change", () => {
@@ -819,6 +898,7 @@ function createSitlPanel() {
   updateI2cStatus();
   updateSpiStatus();
   updateTcpStatus();
+  updateCanStatus();
   updateUartStatus();
 }
 
