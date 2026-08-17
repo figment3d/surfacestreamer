@@ -614,12 +614,12 @@ function updateUdpStatus() {
     udpStatus.innerHTML =
       "<b>STATUS:</b> ONLINE<br>" +
       "<b>SOURCE:</b> External UDP<br>" +
-      "Surface receives network telemetry.";
+      "<b>EFFECT:</b> Surface receives network telemetry.";
   } else {
     udpStatus.innerHTML =
       "<b>STATUS:</b> NETWORK DISABLED<br>" +
       "<b>SOURCE:</b> Procedural SITL<br>" +
-      "External telemetry lost; simulated source active.";
+      "<b>EFFECT:</b> External telemetry lost; simulated source active.";
   }
 }
 
@@ -630,7 +630,7 @@ function updateI2cStatus() {
     i2cStatus.innerHTML =
       "<b>STATUS:</b> ONLINE<br>" +
       "<b>DEVICE:</b> ToF Range Sensor<br>" +
-      "Fresh surface measurements are available.";
+      "<b>EFFECT:</b> Fresh surface measurements are available.";
   } else {
     i2cStatus.innerHTML =
       "<b>STATUS:</b> SENSOR BUS DISABLED<br>" +
@@ -682,7 +682,7 @@ function updateCanStatus() {
   } else {
     canStatus.innerHTML =
       "<b>STATUS:</b> BUS OFFLINE<br>" +
-      "<b>HEALTH:</b> UNKNOWN<br>" +
+      "<b>CAPABILITY:</b> UNKNOWN<br>" +
       "<b>EFFECT:</b> Detailed subsystem health is unavailable.";
   }
 
@@ -725,38 +725,71 @@ function updateDiagnosticDisplay() {
     tcpStatus
   ];
 
-  // UART OFF: no subsystem reports at all
+  // UART OFF: detailed subsystem reporting is unavailable.
   if (!uartEnabled) {
     for (const status of subsystemStatuses) {
       if (status) status.style.display = "none";
     }
 
-    // CAN report is also hidden because UART diagnostics are unavailable
     if (canStatus) canStatus.style.display = "none";
     return;
   }
 
-  // UART ON: reports are visible
+  // UART ON: subsystem reports are visible.
   for (const status of subsystemStatuses) {
     if (status) status.style.display = "block";
   }
 
   if (canStatus) canStatus.style.display = "block";
 
-  // CAN OFF: collapse subsystem reports to one-line health reports
-  if (!canEnabled) {
-    if (udpStatus) udpStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
-    if (i2cStatus) i2cStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
-    if (spiStatus) spiStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
-    if (tcpStatus) tcpStatus.innerHTML = "<b>HEALTH:</b> UNKNOWN — CAN OFFLINE";
+  // CAN ON: normal detailed reports are available.
+  if (canEnabled) {
+    updateUdpStatus();
+    updateI2cStatus();
+    updateSpiStatus();
+    updateTcpStatus();
     return;
   }
 
-  // CAN ON: restore the normal detailed reports
-  updateUdpStatus();
-  updateI2cStatus();
-  updateSpiStatus();
-  updateTcpStatus();
+  // CAN OFF:
+  // Disabled subsystems remain DISABLED.
+  // Enabled subsystems become UNKNOWN because health reporting is unavailable.
+
+  if (udpEnabled) {
+    udpStatus.innerHTML =
+      "<b>STATUS:</b> UNKNOWN<br>" +
+      "<b>SOURCE:</b> External UDP<br>" +
+      "<b>EFFECT:</b> UDP telemetry is enabled, but its health cannot be measured because CAN diagnostics are unavailable.";
+  } else {
+    updateUdpStatus();
+  }
+
+  if (i2cEnabled) {
+    i2cStatus.innerHTML =
+      "<b>STATUS:</b> UNKNOWN<br>" +
+      "<b>DEVICE:</b> ToF Range Sensor<br>" +
+      "<b>EFFECT:</b> I²C is enabled, but its health cannot be measured because CAN diagnostics are unavailable.";
+  } else {
+    updateI2cStatus();
+  }
+
+  if (spiEnabled) {
+    spiStatus.innerHTML =
+      "<b>STATUS:</b> UNKNOWN<br>" +
+      "<b>DEVICE:</b> 6-Axis IMU<br>" +
+      "<b>EFFECT:</b> SPI is enabled, but its health cannot be measured because CAN diagnostics are unavailable.";
+  } else {
+    updateSpiStatus();
+  }
+
+  if (tcpEnabled) {
+    tcpStatus.innerHTML =
+      "<b>STATUS:</b> UNKNOWN<br>" +
+      "<b>CAPABILITY:</b> Remote view control<br>" +
+      "<b>EFFECT:</b> TCP control is enabled, but its health cannot be measured because CAN diagnostics are unavailable.";
+  } else {
+    updateTcpStatus();
+  }
 }
 
 function createSitlPanel() {
@@ -779,12 +812,25 @@ function createSitlPanel() {
       EMBEDDED SYSTEMS
     </div>
 
-    <label title="Receives high-rate surface data from an external source. Disable UDP to fall back to procedural Software-In-The-Loop (SITL) data.">
-      <input id="udpEnabled" type="checkbox">
-      UDP Telemetry
-    </label>
+    <div>
+      <label title="UART provides a maintenance and diagnostic console. Disable it to hide detailed subsystem reporting.">
+        <input id="uartEnabled" type="checkbox">
+        UART Diagnostics
+      </label>
 
-    <div id="udpStatus" style="margin-top:10px; line-height:1.5;"></div>
+      <div id="uartStatus"
+          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <label title="Receives high-rate surface data from an external source. Disable UDP to fall back to procedural Software-In-The-Loop (SITL) data.">
+        <input id="udpEnabled" type="checkbox">
+        UDP Telemetry
+      </label>
+
+      <div id="udpStatus"
+          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
+    </div>
 
     <div style="margin-top:12px;">
       <label title="I²C connects the controller to range sensors. Disable it to simulate loss of fresh sensor measurements.">
@@ -793,7 +839,7 @@ function createSitlPanel() {
       </label>
 
       <div id="i2cStatus"
-          style="margin-top:6px; line-height:1.5;"></div>
+          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
     </div>
 
     <div style="margin-top:12px;">
@@ -803,7 +849,7 @@ function createSitlPanel() {
       </label>
 
       <div id="spiStatus"
-          style="margin-top:6px; line-height:1.5;"></div>
+          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
     </div>
 
     <div style="margin-top:12px;">
@@ -813,7 +859,7 @@ function createSitlPanel() {
       </label>
 
       <div id="tcpStatus"
-          style="margin-top:6px; line-height:1.5;"></div>
+          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
     </div>
 
     <div style="margin-top:12px;">
@@ -823,17 +869,7 @@ function createSitlPanel() {
       </label>
 
       <div id="canStatus"
-          style="margin-top:6px; line-height:1.5;"></div>
-    </div>
-
-    <div style="margin-top:12px;">
-      <label title="UART provides a maintenance and diagnostic console. Disable it to hide detailed subsystem reporting.">
-        <input id="uartEnabled" type="checkbox">
-        UART Diagnostics
-      </label>
-
-      <div id="uartStatus"
-          style="margin-top:6px; line-height:1.5;"></div>
+          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
     </div>
   `;
 
