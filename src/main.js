@@ -576,11 +576,14 @@ let cfg = null;
 let udpEnabled = true;
 let i2cEnabled = true;
 let acceptOneFrame = false;
+let spiEnabled = true;
 
 let udpCheckbox = null;
 let udpStatus = null;
 let i2cCheckbox = null;
 let i2cStatus = null;
+let spiCheckbox = null;
+let spiStatus = null;
 
 function updateUdpStatus() {
   if (!udpStatus) return;
@@ -611,6 +614,22 @@ function updateI2cStatus() {
       "<b>STATUS:</b> SENSOR BUS DISABLED<br>" +
       "<b>DEVICE:</b> ToF Sensor Unavailable<br>" +
       "<b>EFFECT:</b> Surface frozen at last valid measurement.";
+  }
+}
+
+function updateSpiStatus() {
+  if (!spiStatus) return;
+
+  if (spiEnabled) {
+    spiStatus.innerHTML =
+      "<b>STATUS:</b> ONLINE<br>" +
+      "<b>DEVICE:</b> 6-Axis IMU<br>" +
+      "<b>EFFECT:</b> Orientation color visualization available.";
+  } else {
+    spiStatus.innerHTML =
+      "<b>STATUS:</b> SENSOR BUS DISABLED<br>" +
+      "<b>DEVICE:</b> IMU unavailable<br>" +
+      "<b>EFFECT:</b> Orientation color visualization lost.";
   }
 }
 
@@ -647,7 +666,18 @@ function createSitlPanel() {
         I²C Range Sensor
       </label>
 
-      <div id="i2cStatus" style="margin-top:6px; line-height:1.5;"></div>
+      <div id="i2cStatus"
+          style="margin-top:6px; line-height:1.5;"></div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <label title="SPI connects the controller to the IMU. Disable it to simulate loss of accelerometer and gyroscope data.">
+        <input id="spiEnabled" type="checkbox">
+        SPI IMU
+      </label>
+
+      <div id="spiStatus"
+          style="margin-top:6px; line-height:1.5;"></div>
     </div>
   `;
 
@@ -659,8 +689,12 @@ function createSitlPanel() {
   i2cCheckbox = document.getElementById("i2cEnabled");
   i2cStatus = document.getElementById("i2cStatus");
   
+  spiCheckbox = document.getElementById("spiEnabled");
+  spiStatus = document.getElementById("spiStatus");
+
   udpCheckbox.checked = udpEnabled;
   i2cCheckbox.checked = i2cEnabled;
+  spiCheckbox.checked = spiEnabled;
 
   udpCheckbox.addEventListener("change", () => {
     udpEnabled = udpCheckbox.checked;
@@ -678,8 +712,17 @@ function createSitlPanel() {
     updateI2cStatus();
   });
 
+  spiCheckbox.addEventListener("change", () => {
+    spiEnabled = spiCheckbox.checked;
+
+    colorMode = spiEnabled ? 1 : 0;
+
+    updateSpiStatus();
+  });
+
   updateUdpStatus();
   updateI2cStatus();
+  updateSpiStatus();
 }
 
 function sendCfgUpdate(obj) {
@@ -965,6 +1008,9 @@ async function boot() {
   if (typeof st.noise_sigma === "number") cfg.noise_sigma = st.noise_sigma;
   if (typeof st.ema_alpha === "number") cfg.ema_alpha = st.ema_alpha;
 
+  // SPI availability controls the IMU/orientation color visualization
+  colorMode = spiEnabled ? 1 : 0;
+  
   console.log("config defaults:", cfg);
   console.log("restored state:", st);
 
