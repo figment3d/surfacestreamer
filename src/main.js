@@ -539,11 +539,17 @@ canvas.addEventListener("mousedown", (e) => {
   if (!tcpEnabled) return;
 
   dragging = true;
+  updateTcpCursor();
+
   lastX = e.clientX;
   lastY = e.clientY;
 });
 
-window.addEventListener("mouseup", () => dragging = false);
+window.addEventListener("mouseup", () => {
+  dragging = false;
+  updateTcpCursor();
+});
+
 window.addEventListener("mousemove", (e) => {
   if (!tcpEnabled || !dragging) return;
   const dx = e.clientX - lastX;
@@ -701,6 +707,16 @@ function updateUartStatus() {
   updateDiagnosticDisplay();
 }
 
+function updateTcpCursor() {
+  if (!tcpEnabled) {
+    canvas.style.cursor = "default";
+  } else if (dragging) {
+    canvas.style.cursor = "grabbing";
+  } else {
+    canvas.style.cursor = "grab";
+  }
+}
+
 function updateDiagnosticDisplay() {
   const subsystemStatuses = [
     udpStatus,
@@ -848,6 +864,8 @@ function createSitlPanel() {
   canCheckbox.checked = canEnabled;
   uartCheckbox.checked = uartEnabled;
 
+  updateTcpCursor();
+
   udpCheckbox.addEventListener("change", () => {
     udpEnabled = udpCheckbox.checked;
 
@@ -878,8 +896,8 @@ function createSitlPanel() {
 
     if (!tcpEnabled) {
       dragging = false;
-    }
-
+    }    
+    updateTcpCursor();
     updateTcpStatus();
     updateDiagnosticDisplay();
   });
