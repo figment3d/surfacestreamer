@@ -536,13 +536,16 @@ let dragging = false;
 let lastX = 0, lastY = 0;
 
 canvas.addEventListener("mousedown", (e) => {
+  if (!tcpEnabled) return;
+
   dragging = true;
   lastX = e.clientX;
   lastY = e.clientY;
 });
+
 window.addEventListener("mouseup", () => dragging = false);
 window.addEventListener("mousemove", (e) => {
-  if (!dragging) return;
+  if (!tcpEnabled || !dragging) return;
   const dx = e.clientX - lastX;
   const dy = e.clientY - lastY;
   lastX = e.clientX;
@@ -551,8 +554,12 @@ window.addEventListener("mousemove", (e) => {
   pitch += dy * 0.005;
   pitch = Math.max(-1.45, Math.min(1.45, pitch));
 });
+
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
+
+  if (!tcpEnabled) return;
+
   const s = Math.exp(e.deltaY * 0.001);
   radius = Math.max(0.6, Math.min(30.0, radius * s));
 }, { passive:false });
@@ -575,8 +582,10 @@ let ws = null;
 let cfg = null;
 let udpEnabled = true;
 let i2cEnabled = true;
-let acceptOneFrame = false;
 let spiEnabled = true;
+let tcpEnabled = true;
+let acceptOneFrame = false;
+
 
 let udpCheckbox = null;
 let udpStatus = null;
@@ -584,6 +593,8 @@ let i2cCheckbox = null;
 let i2cStatus = null;
 let spiCheckbox = null;
 let spiStatus = null;
+let tcpCheckbox = null;
+let tcpStatus = null;
 
 function updateUdpStatus() {
   if (!udpStatus) return;
@@ -633,6 +644,22 @@ function updateSpiStatus() {
   }
 }
 
+function updateTcpStatus() {
+  if (!tcpStatus) return;
+
+  if (tcpEnabled) {
+    tcpStatus.innerHTML =
+      "<b>STATUS:</b> ONLINE<br>" +
+      "<b>CAPABILITY:</b> Remote view control available<br>" +
+      "<b>EFFECT:</b> Camera rotation and zoom commands accepted.";
+  } else {
+    tcpStatus.innerHTML =
+      "<b>STATUS:</b> CONTROL LINK DISABLED<br>" +
+      "<b>CAPABILITY:</b> Remote view control unavailable<br>" +
+      "<b>EFFECT:</b> Camera remains fixed while telemetry continues.";
+  }
+}
+
 function createSitlPanel() {
   const panel = document.createElement("div");
 
@@ -679,6 +706,16 @@ function createSitlPanel() {
       <div id="spiStatus"
           style="margin-top:6px; line-height:1.5;"></div>
     </div>
+
+    <div style="margin-top:12px;">
+      <label title="TCP provides reliable command and control. Disable it to simulate loss of remote camera commands.">
+        <input id="tcpEnabled" type="checkbox">
+        TCP Control
+      </label>
+
+      <div id="tcpStatus"
+          style="margin-top:6px; line-height:1.5;"></div>
+    </div>
   `;
 
   document.body.appendChild(panel);
@@ -692,9 +729,13 @@ function createSitlPanel() {
   spiCheckbox = document.getElementById("spiEnabled");
   spiStatus = document.getElementById("spiStatus");
 
+  tcpCheckbox = document.getElementById("tcpEnabled");
+  tcpStatus = document.getElementById("tcpStatus");
+
   udpCheckbox.checked = udpEnabled;
   i2cCheckbox.checked = i2cEnabled;
   spiCheckbox.checked = spiEnabled;
+  tcpCheckbox.checked = tcpEnabled;
 
   udpCheckbox.addEventListener("change", () => {
     udpEnabled = udpCheckbox.checked;
@@ -720,9 +761,20 @@ function createSitlPanel() {
     updateSpiStatus();
   });
 
+  tcpCheckbox.addEventListener("change", () => {
+    tcpEnabled = tcpCheckbox.checked;
+
+    if (!tcpEnabled) {
+      dragging = false;
+    }
+
+    updateTcpStatus();
+  });
+
   updateUdpStatus();
   updateI2cStatus();
   updateSpiStatus();
+  updateTcpStatus();
 }
 
 function sendCfgUpdate(obj) {
@@ -1010,7 +1062,7 @@ async function boot() {
 
   // SPI availability controls the IMU/orientation color visualization
   colorMode = spiEnabled ? 1 : 0;
-  
+
   console.log("config defaults:", cfg);
   console.log("restored state:", st);
 
