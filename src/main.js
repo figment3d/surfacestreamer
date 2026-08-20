@@ -586,6 +586,10 @@ function getViewParams() {
 // ======================================================
 let ws = null;
 let cfg = null;
+let systemMode = "sitl";   // "sitl" or "hardware"
+let sitlModeRadio = null;
+let hardwareModeRadio = null;
+
 let udpEnabled = true;
 let i2cEnabled = true;
 let spiEnabled = true;
@@ -607,104 +611,226 @@ let canStatus = null;
 let uartCheckbox = null;
 let uartStatus = null;
 
-function updateUdpStatus() {
-  if (!udpStatus) return;
+function getModeDetails(interfaceName) {
+  const hardwareMode = systemMode === "hardware";
 
-  if (udpEnabled) {
+  if (!hardwareMode) {
+    switch (interfaceName) {
+      case "uart":
+        return (
+          "Simulated wired maintenance and debug connection.<br>" +
+          "<b>BACKEND:</b> Simulated UART console"
+        );
+
+      case "udp":
+        return (
+          "Simulated high-rate network telemetry stream.<br>" +
+          "<b>BACKEND:</b> Simulated UDP source"
+        );
+
+      case "i2c":
+        return (
+          "Simulated sensor that measures distance.<br>" +
+          "<b>BACKEND:</b> Simulated ToF range sensor"
+        );
+
+      case "spi":
+        return (
+          "Simulated motion sensor for tilt, acceleration, and rotation.<br>" +
+          "<b>BACKEND:</b> Simulated IMU"
+        );
+
+      case "tcp":
+        return (
+          "Simulated reliable network connection for commands.<br>" +
+          "<b>BACKEND:</b> Simulated TCP control link"
+        );
+
+      case "can":
+        return (
+          "Simulated shared embedded network for subsystem status.<br>" +
+          "<b>BACKEND:</b> Simulated CAN bus"
+        );
+    }
+  }
+
+  switch (interfaceName) {
+    case "uart":
+      return (
+        "Simple wired maintenance and debug connection<br>" +
+        "<b>HARDWARE:</b> STM32 UART / ST-LINK VCP<br>" +
+        "<b>CONNECTION:</b> TX + RX"
+      );
+
+    case "udp":
+      return (
+        "Fast network channel for continuously streaming live data<br>" +
+        "<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet<br>" +
+        "<b>CONNECTION:</b> Ethernet / IP"
+      );
+
+    case "i2c":
+      return (
+        "Laser time-of-flight distance sensor<br>" +
+        "<b>HARDWARE:</b> TOF400C / VL53L1X<br>" +
+        "<b>CONNECTION:</b> SDA + SCL"
+      );
+
+    case "spi":
+      return (
+        "Motion sensor that detects tilt, acceleration, and rotation<br>" +
+        "<b>HARDWARE:</b> BMI270 6-DoF IMU<br>" +
+        "<b>CONNECTION:</b> MOSI + MISO + SCLK + CS"
+      );
+
+    case "tcp":
+      return (
+        "Reliable network channel for commands and settings<br>" +
+        "<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet<br>" +
+        "<b>CONNECTION:</b> Ethernet / IP"
+      );
+
+    case "can":
+      return (
+        "Rugged shared network for embedded devices<br>" +
+        "<b>HARDWARE:</b> STM32 FDCAN + SN65HVD230<br>" +
+        "<b>CONNECTION:</b> CANH + CANL"
+      );
+  }
+
+  return "";
+}
+
+function updateUdpStatus() {
+  if (udpStatus) {
+    const statusText = udpEnabled ? "ONLINE" : "NETWORK DISABLED";
+
+    udpCheckbox.parentElement.lastChild.textContent =
+      ` UDP Telemetry (${statusText})`;
+
     udpStatus.innerHTML =
-      "<b>STATUS:</b> ONLINE<br>" +
-      "<b>SOURCE:</b> External UDP<br>" +
-      "<b>EFFECT:</b> Surface receives network telemetry.";
-  } else {
-    udpStatus.innerHTML =
-      "<b>STATUS:</b> NETWORK DISABLED<br>" +
-      "<b>SOURCE:</b> Procedural SITL<br>" +
-      "<b>EFFECT:</b> External telemetry lost; simulated source active.";
+      getModeDetails("udp") + "<br>";
+
+    if (udpEnabled) {
+      udpStatus.innerHTML +=
+        "<b>SOURCE:</b> External UDP<br>" +
+        "<b>EFFECT:</b> Surface receives network telemetry.";
+    } else {
+      udpStatus.innerHTML +=
+        "<b>SOURCE:</b> Procedural SITL<br>" +
+        "<b>EFFECT:</b> External telemetry lost; simulated source active.";
+    }
   }
 }
 
 function updateI2cStatus() {
-  if (!i2cStatus) return;
+  if (i2cStatus) {
+    const statusText = i2cEnabled ? "ONLINE" : "SENSOR BUS DISABLED";
 
-  if (i2cEnabled) {
+    i2cCheckbox.parentElement.lastChild.textContent =
+      ` I²C Range Sensor (${statusText})`;
+
     i2cStatus.innerHTML =
-      "<b>STATUS:</b> ONLINE<br>" +
-      "<b>DEVICE:</b> ToF Range Sensor<br>" +
-      "<b>EFFECT:</b> Fresh surface measurements are available.";
-  } else {
-    i2cStatus.innerHTML =
-      "<b>STATUS:</b> SENSOR BUS DISABLED<br>" +
-      "<b>DEVICE:</b> ToF Sensor Unavailable<br>" +
-      "<b>EFFECT:</b> Surface frozen at last valid measurement.";
+      getModeDetails("i2c") + "<br>";
+
+    if (i2cEnabled) {
+      i2cStatus.innerHTML +=
+        "<b>EFFECT:</b> Fresh surface measurements are available.";
+    } else {
+      i2cStatus.innerHTML +=
+        "<b>EFFECT:</b> Surface frozen at last valid measurement.";
+    }
   }
 }
 
 function updateSpiStatus() {
-  if (!spiStatus) return;
+  if (spiStatus) {
+    const statusText = spiEnabled ? "ONLINE" : "SENSOR BUS DISABLED";
 
-  if (spiEnabled) {
+    spiCheckbox.parentElement.lastChild.textContent =
+      ` SPI IMU (${statusText})`;
+
     spiStatus.innerHTML =
-      "<b>STATUS:</b> ONLINE<br>" +
-      "<b>DEVICE:</b> 6-Axis IMU<br>" +
-      "<b>EFFECT:</b> Orientation color visualization available.";
-  } else {
-    spiStatus.innerHTML =
-      "<b>STATUS:</b> SENSOR BUS DISABLED<br>" +
-      "<b>DEVICE:</b> IMU unavailable<br>" +
-      "<b>EFFECT:</b> Orientation color visualization lost.";
+      getModeDetails("spi") + "<br>";
+
+    if (spiEnabled) {
+      spiStatus.innerHTML +=
+        "<b>EFFECT:</b> Orientation color visualization available.";
+    } else {
+      spiStatus.innerHTML +=
+        "<b>EFFECT:</b> Orientation color visualization lost.";
+    }
   }
 }
 
 function updateTcpStatus() {
-  if (!tcpStatus) return;
+  if (tcpStatus) {
+    const statusText = tcpEnabled ? "ONLINE" : "CONTROL LINK DISABLED";
 
-  if (tcpEnabled) {
+    tcpCheckbox.parentElement.lastChild.textContent =
+      ` TCP Control (${statusText})`;
+
     tcpStatus.innerHTML =
-      "<b>STATUS:</b> ONLINE<br>" +
-      "<b>CAPABILITY:</b> Remote view control available<br>" +
-      "<b>EFFECT:</b> Camera rotation and zoom commands accepted.";
-  } else {
-    tcpStatus.innerHTML =
-      "<b>STATUS:</b> CONTROL LINK DISABLED<br>" +
-      "<b>CAPABILITY:</b> Remote view control unavailable<br>" +
-      "<b>EFFECT:</b> Camera remains fixed while telemetry continues.";
+      getModeDetails("tcp") + "<br>";
+
+    if (tcpEnabled) {
+      tcpStatus.innerHTML +=
+        "<b>CAPABILITY:</b> Remote view control available<br>" +
+        "<b>EFFECT:</b> Camera rotation and zoom commands accepted.";
+    } else {
+      tcpStatus.innerHTML +=
+        "<b>CAPABILITY:</b> Remote view control unavailable<br>" +
+        "<b>EFFECT:</b> Camera remains fixed while telemetry continues.";
+    }
   }
 }
 
 function updateCanStatus() {
-  if (!canStatus) return;
+  if (canStatus) {
+    const statusText = canEnabled ? "ONLINE" : "BUS OFFLINE";
 
-  if (canEnabled) {
+    canCheckbox.parentElement.lastChild.textContent =
+      ` CAN Subsystem Bus (${statusText})`;
+
     canStatus.innerHTML =
-      "<b>STATUS:</b> ONLINE<br>" +
-      "<b>CAPABILITY:</b> Subsystem health reporting available<br>" +
-      "<b>EFFECT:</b> Detailed component and BIT status is available.";
-  } else {
-    canStatus.innerHTML =
-      "<b>STATUS:</b> BUS OFFLINE<br>" +
-      "<b>CAPABILITY:</b> UNKNOWN<br>" +
-      "<b>EFFECT:</b> Detailed subsystem health is unavailable.";
+      getModeDetails("can") + "<br>";
+
+    if (canEnabled) {
+      canStatus.innerHTML +=
+        "<b>CAPABILITY:</b> Subsystem health reporting available<br>" +
+        "<b>EFFECT:</b> Detailed component and BIT status is available.";
+    } else {
+      canStatus.innerHTML +=
+        "<b>CAPABILITY:</b> UNKNOWN<br>" +
+        "<b>EFFECT:</b> Detailed subsystem health is unavailable.";
+    }
+
+    updateDiagnosticDisplay();
   }
-
-  updateDiagnosticDisplay();
 }
 
 function updateUartStatus() {
-  if (!uartStatus) return;
+  if (uartStatus) {
+    const statusText = uartEnabled ? "ONLINE" : "DIAGNOSTICS DISABLED";
 
-  if (uartEnabled) {
+    uartCheckbox.parentElement.lastChild.textContent =
+      ` UART Diagnostics (${statusText})`;
+
     uartStatus.innerHTML =
-      "<b>STATUS:</b> ONLINE<br>" +
-      "<b>CAPABILITY:</b> Maintenance console available<br>" +
-      "<b>EFFECT:</b> Detailed subsystem diagnostics are visible.";
-  } else {
-    uartStatus.innerHTML =
-      "<b>STATUS:</b> DIAGNOSTICS DISABLED<br>" +
-      "<b>CAPABILITY:</b> Maintenance console unavailable<br>" +
-      "<b>EFFECT:</b> Detailed subsystem reporting is hidden.";
+      getModeDetails("uart") + "<br>";
+
+    if (uartEnabled) {
+      uartStatus.innerHTML +=
+        "<b>CAPABILITY:</b> Maintenance console available<br>" +
+        "<b>EFFECT:</b> Detailed subsystem diagnostics are visible.";
+    } else {
+      uartStatus.innerHTML +=
+        "<b>CAPABILITY:</b> Maintenance console unavailable<br>" +
+        "<b>EFFECT:</b> Detailed subsystem reporting is hidden.";
+    }
+
+    updateDiagnosticDisplay();
   }
-
-  updateDiagnosticDisplay();
 }
 
 function updateTcpCursor() {
@@ -792,6 +918,16 @@ function updateDiagnosticDisplay() {
   }
 }
 
+function refreshAllSystemStatus() {
+  updateUartStatus();
+  updateUdpStatus();
+  updateI2cStatus();
+  updateSpiStatus();
+  updateTcpStatus();
+  updateCanStatus();
+  updateDiagnosticDisplay();
+}
+
 function createSitlPanel() {
   const panel = document.createElement("div");
 
@@ -810,6 +946,23 @@ function createSitlPanel() {
   panel.innerHTML = `
     <div style="font-weight:bold; margin-bottom:8px;">
       EMBEDDED SYSTEMS
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-weight:bold; margin-bottom:4px;">
+        OPERATING MODE
+      </div>
+
+      <label title="Software-In-The-Loop: embedded devices are simulated.">
+        <input id="sitlMode" type="radio" name="systemMode" value="sitl" checked>
+        SITL
+      </label>
+
+      <label style="margin-left:12px;"
+            title="Hardware mode: use real STM32 peripherals and connected devices.">
+        <input id="hardwareMode" type="radio" name="systemMode" value="hardware">
+        Hardware
+      </label>
     </div>
 
     <div>
@@ -875,6 +1028,9 @@ function createSitlPanel() {
 
   document.body.appendChild(panel);
 
+  sitlModeRadio = document.getElementById("sitlMode");
+  hardwareModeRadio = document.getElementById("hardwareMode");
+
   udpCheckbox = document.getElementById("udpEnabled");
   udpStatus = document.getElementById("udpStatus");
 
@@ -902,6 +1058,20 @@ function createSitlPanel() {
 
   updateTcpCursor();
 
+  sitlModeRadio.addEventListener("change", () => {
+    if (sitlModeRadio.checked) {
+      systemMode = "sitl";
+      refreshAllSystemStatus();
+    }
+  });
+
+  hardwareModeRadio.addEventListener("change", () => {
+    if (hardwareModeRadio.checked) {
+      systemMode = "hardware";
+      refreshAllSystemStatus();
+    }
+  });
+  
   udpCheckbox.addEventListener("change", () => {
     udpEnabled = udpCheckbox.checked;
 
