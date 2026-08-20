@@ -536,13 +536,13 @@ let dragging = false;
 let lastX = 0, lastY = 0;
 
 canvas.addEventListener("mousedown", (e) => {
-  if (!tcpEnabled) return;
+  if (tcpEnabled) {
+    dragging = true;
+    updateTcpCursor();
 
-  dragging = true;
-  updateTcpCursor();
-
-  lastX = e.clientX;
-  lastY = e.clientY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  }
 });
 
 window.addEventListener("mouseup", () => {
@@ -551,33 +551,39 @@ window.addEventListener("mouseup", () => {
 });
 
 window.addEventListener("mousemove", (e) => {
-  if (!tcpEnabled || !dragging) return;
-  const dx = e.clientX - lastX;
-  const dy = e.clientY - lastY;
-  lastX = e.clientX;
-  lastY = e.clientY;
-  yaw += dx * 0.005;
-  pitch += dy * 0.005;
-  pitch = Math.max(-1.45, Math.min(1.45, pitch));
+  if (tcpEnabled && dragging) {
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+
+    lastX = e.clientX;
+    lastY = e.clientY;
+
+    yaw += dx * 0.005;
+    pitch += dy * 0.005;
+
+    pitch = Math.max(-1.45, Math.min(1.45, pitch));
+  }
 });
 
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
-  if (!tcpEnabled) return;
-
-  const s = Math.exp(e.deltaY * 0.001);
-  radius = Math.max(0.6, Math.min(30.0, radius * s));
+  if (tcpEnabled) {
+    const s = Math.exp(e.deltaY * 0.001);
+    radius = Math.max(0.6, Math.min(30.0, radius * s));
+  }
 }, { passive:false });
 
 function getViewParams() {
   const cy = Math.cos(yaw), sy = Math.sin(yaw);
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
+
   const eye = [
     target[0] + radius * (sy * cp),
     target[1] + radius * (sp),
     target[2] + radius * (cy * cp),
   ];
+
   return { eye };
 }
 
@@ -617,17 +623,26 @@ let canStatus = null;
 let uartCheckbox = null;
 let uartStatus = null;
 
-function getInterfaceStatus(enabled, detected, disabledText) {
+function getInterfaceStatus(enabled, detected, disabledText, monitorWithCan = true) {
+  let statusText = "";
+
   if (!enabled) {
-    return disabledText;
+    statusText = disabledText;
+
+    if (monitorWithCan && !canEnabled) {
+      statusText += ", UNMONITORED";
+    }
+  } else if (systemMode === "hardware" && !detected) {
+    statusText = "HARDWARE NOT DETECTED";
+  } else if (monitorWithCan && !canEnabled) {
+    statusText = "UNKNOWN";
+  } else {
+    statusText = "ONLINE";
   }
 
-  if (systemMode === "hardware" && !detected) {
-    return "HARDWARE NOT DETECTED";
-  }
-
-  return "ONLINE";
+  return statusText;
 }
+
 function getModeDetails(interfaceName) {
   const hardwareMode = systemMode === "hardware";
 
@@ -809,7 +824,8 @@ function updateCanStatus() {
     const statusText = getInterfaceStatus(
       canEnabled,
       canDetected,
-      "BUS OFFLINE"
+      "BUS OFFLINE",
+      false
     );
 
     canCheckbox.parentElement.lastChild.textContent =
@@ -872,78 +888,73 @@ function updateDiagnosticDisplay() {
     tcpStatus
   ];
 
-  // UART OFF: detailed subsystem reporting is unavailable.
-  if (!uartEnabled) {
+  if (uartEnabled) {
+    // UART ON: detailed subsystem reporting is visible.
     for (const status of subsystemStatuses) {
-      if (status) status.style.display = "none";
+      if (status) {
+        status.style.display = "block";
+      }
     }
 
-    if (canStatus) canStatus.style.display = "none";
-    return;
-  }
+    if (canStatus) {
+      canStatus.style.display = "block";
+    }
 
-  // UART ON: subsystem reports are visible.
-  for (const status of subsystemStatuses) {
-    if (status) status.style.display = "block";
-  }
-
-  if (canStatus) canStatus.style.display = "block";
-
-  // CAN ON: normal detailed reports are available.
-  if (canEnabled) {
+    // First generate each subsystem's normal state.
+    // getInterfaceStatus() handles:
+    //   ONLINE
+    //   DISABLED
+    //   DISABLED, UNMONITORED
+    //   UNKNOWN
+    //   HARDWARE NOT DETECTED
     updateUdpStatus();
     updateI2cStatus();
     updateSpiStatus();
     updateTcpStatus();
-    return;
-  }
 
-  // CAN OFF:
-  // Disabled subsystems remain DISABLED.
-  // Enabled subsystems become UNKNOWN because health reporting is unavailable.
+    // CAN OFF:
+    // Enabled subsystems continue providing their capability,
+    // but CAN can no longer report whether they are healthy.
+    if (!canEnabled) {
+      if (udpEnabled &&
+          !(systemMode === "hardware" && !udpDetected)) {
+        udpStatus.innerHTML =
+          getModeDetails("udp") + "<br>" +
+          "<b>CAPABILITY:</b> External telemetry-driven surface (health unknown)";
+      }
 
-  if (udpEnabled && !(systemMode === "hardware" && !udpDetected)) {
-    udpCheckbox.parentElement.lastChild.textContent =
-      " UDP Telemetry (UNKNOWN)";
+      if (i2cEnabled &&
+          !(systemMode === "hardware" && !i2cDetected)) {
+        i2cStatus.innerHTML =
+          getModeDetails("i2c") + "<br>" +
+          "<b>CAPABILITY:</b> Live surface updates (health unknown)";
+      }
 
-    udpStatus.innerHTML =
-      getModeDetails("udp") + "<br>" +
-      "<b>CAPABILITY:</b> External telemetry-driven surface (health unknown)";
+      if (spiEnabled &&
+          !(systemMode === "hardware" && !spiDetected)) {
+        spiStatus.innerHTML =
+          getModeDetails("spi") + "<br>" +
+          "<b>CAPABILITY:</b> Color visualization (health unknown)";
+      }
+
+      if (tcpEnabled &&
+          !(systemMode === "hardware" && !tcpDetected)) {
+        tcpStatus.innerHTML =
+          getModeDetails("tcp") + "<br>" +
+          "<b>CAPABILITY:</b> Camera rotation and zoom (health unknown)";
+      }
+    }
   } else {
-    updateUdpStatus();
-  }
+    // UART OFF: detailed subsystem reporting is unavailable.
+    for (const status of subsystemStatuses) {
+      if (status) {
+        status.style.display = "none";
+      }
+    }
 
-  if (i2cEnabled && !(systemMode === "hardware" && !i2cDetected)) {
-    i2cCheckbox.parentElement.lastChild.textContent =
-      " I²C Range Sensor (UNKNOWN)";
-
-    i2cStatus.innerHTML =
-      getModeDetails("i2c") + "<br>" +
-      "<b>CAPABILITY:</b> Live surface updates (health unknown)";
-  } else {
-    updateI2cStatus();
-  }
-
-  if (spiEnabled && !(systemMode === "hardware" && !spiDetected)) {
-    spiCheckbox.parentElement.lastChild.textContent =
-      " SPI IMU (UNKNOWN)";
-
-    spiStatus.innerHTML =
-      getModeDetails("spi") + "<br>" +
-      "<b>CAPABILITY:</b> Color visualization (health unknown)";
-  } else {
-    updateSpiStatus();
-  }
-
-  if (tcpEnabled && !(systemMode === "hardware" && !tcpDetected)) {
-    tcpCheckbox.parentElement.lastChild.textContent =
-      " TCP Control (UNKNOWN)";
-
-    tcpStatus.innerHTML =
-      getModeDetails("tcp") + "<br>" +
-      "<b>CAPABILITY:</b> Camera rotation and zoom (health unknown)";
-  } else {
-    updateTcpStatus();
+    if (canStatus) {
+      canStatus.style.display = "none";
+    }
   }
 }
 
@@ -1156,8 +1167,9 @@ function createSitlPanel() {
 }
 
 function sendCfgUpdate(obj) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify({ type:"cfg", ...obj }));
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type:"cfg", ...obj }));
+  }
 }
 
 function connect() {
@@ -1200,41 +1212,55 @@ function connect() {
       } catch (e) {
         console.log("Bad WS text message", e);
       }
+    } else {
+      const buf = ev.data;
 
-      return;
+      if (buf instanceof ArrayBuffer && buf.byteLength >= 8) {
+        if (i2cEnabled || acceptOneFrame) {
+          acceptOneFrame = false;
+
+          const dv = new DataView(buf);
+          const pnx = dv.getUint32(0, true);
+          const pny = dv.getUint32(4, true);
+
+          const expectedFloats = pnx * pny * 16;
+          const expectedBytes = 8 + expectedFloats * 4;
+
+          if (buf.byteLength === expectedBytes) {
+            if (pnx !== PNX || pny !== PNY) {
+              allocCtrlTex(pnx, pny);
+            }
+
+            const ctrl16 = new Float32Array(buf, 8, expectedFloats);
+
+            // Stitching driven by config flags (defaults to true)
+            const stitchC0 =
+              (cfg && typeof cfg.stitchC0 === "boolean") ? cfg.stitchC0 : true;
+
+            const stitchC1 =
+              (cfg && typeof cfg.stitchC1 === "boolean") ? cfg.stitchC1 : true;
+
+            if (stitchC0 || stitchC1) {
+              stitchPatchesInPlace(
+                ctrl16,
+                pnx,
+                pny,
+                { c0: stitchC0, c1: stitchC1 }
+              );
+            }
+
+            updateCtrlTexFromPatches(ctrl16);
+          } else {
+            console.warn(
+              "Bad payload bytes:",
+              buf.byteLength,
+              "expected:",
+              expectedBytes
+            );
+          }
+        }
+      }
     }
-
-    const buf = ev.data;
-    if (!(buf instanceof ArrayBuffer)) return;
-    if (buf.byteLength < 8) return;
-
-    if (!i2cEnabled && !acceptOneFrame) return;
-
-    acceptOneFrame = false;
-
-    const dv = new DataView(buf);
-    const pnx = dv.getUint32(0, true);
-    const pny = dv.getUint32(4, true);
-
-    const expectedFloats = pnx * pny * 16;
-    const expectedBytes = 8 + expectedFloats * 4;
-    if (buf.byteLength !== expectedBytes) {
-      console.warn("Bad payload bytes:", buf.byteLength, "expected:", expectedBytes);
-      return;
-    }
-
-    if (pnx !== PNX || pny !== PNY) allocCtrlTex(pnx, pny);
-
-    const ctrl16 = new Float32Array(buf, 8, expectedFloats);
-
-    // Stitching driven by config flags (defaults to true)
-    const stitchC0 = (cfg && typeof cfg.stitchC0 === "boolean") ? cfg.stitchC0 : true;
-    const stitchC1 = (cfg && typeof cfg.stitchC1 === "boolean") ? cfg.stitchC1 : true;
-    if (stitchC0 || stitchC1) {
-      stitchPatchesInPlace(ctrl16, pnx, pny, { c0: stitchC0, c1: stitchC1 });
-    }
-
-    updateCtrlTexFromPatches(ctrl16);
   };
 }
 
