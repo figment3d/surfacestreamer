@@ -150,7 +150,7 @@ def detect_uart_hardware() -> bool:
         with serial.Serial(
             UART_PORT,
             UART_BAUD,
-            timeout=2
+            timeout=0.5
         ) as ser:
             time.sleep(0.2)
 
@@ -162,18 +162,9 @@ def detect_uart_hardware() -> bool:
                 errors="replace"
             ).strip()
 
-            detected = reply == "SURFACE_STREAMER_READY"
+            return reply == "SURFACE_STREAMER_READY"
 
-            print(
-                f"UART {UART_PORT}: "
-                f"{'DETECTED' if detected else 'NOT DETECTED'}"
-                f" ({reply!r})"
-            )
-
-            return detected
-
-    except serial.SerialException as e:
-        print(f"UART {UART_PORT}: NOT DETECTED ({e})")
+    except serial.SerialException:
         return False
 
 # ============================================================
@@ -275,6 +266,8 @@ def make_patch_ctrl16_bezier(t: float) -> np.ndarray:
 # ============================================================
 clients: set = set()
 broadcast_task: asyncio.Task | None = None
+uart_monitor_task: asyncio.Task | None = None
+uart_detected_state: bool | None = None
 pending_source_change: str | None = None
 
 async def broadcast_loop():
@@ -358,20 +351,51 @@ async def broadcast_loop():
         else:
             next_t = time.perf_counter()
 
+async def uart_monitor():
+    global uart_detected_state
+
+    while True:
+        uart_detected = await asyncio.to_thread(
+            detect_uart_hardware
+        )
+
+        if uart_detected != uart_detected_state:
+            uart_detected_state = uart_detected
+
+            print(
+                f"[CBIT] UART state changed: "
+                f"{'ONLINE' if uart_detected else 'OFFLINE'}"
+            )
+
+            message = json.dumps({
+                "type": "hardware_status",
+                "uartDetected": uart_detected
+            })
+
+            dead = []
+
+            for ws in list(clients):
+                try:
+                    await ws.send(message)
+                except Exception:
+                    dead.append(ws)
+
+            for ws in dead:
+                clients.discard(ws)
+
+        await asyncio.sleep(1.0)
+        
 async def handler(ws):
     print("CONNECT", id(ws))
     clients.add(ws)
     print("Clients now:", len(clients))
 
-    uart_detected = await asyncio.to_thread(
-        detect_uart_hardware
-    )
-
-    await ws.send(json.dumps({
-        "type": "hardware_status",
-        "uartDetected": uart_detected
-    }))
-
+    if uart_detected_state is not None:
+        await ws.send(json.dumps({
+            "type": "hardware_status",
+            "uartDetected": uart_detected_state
+        }))
+  
     async def rx_loop():
         global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change
         try:
@@ -422,19 +446,21 @@ async def handler(ws):
             rx_task.cancel()
         except Exception:
             pass
+
         clients.discard(ws)
         print("DISCONNECT", id(ws))
         print("Clients now:", len(clients))
-
-
+       
 async def main():
-    global broadcast_task
-
+    global broadcast_task, uart_monitor_task
     asyncio.create_task(udp_receiver())
 
     if broadcast_task is None:
         broadcast_task = asyncio.create_task(broadcast_loop())
         broadcast_task.add_done_callback(lambda t: print("broadcast_loop ended:", t.exception()))
+
+    if uart_monitor_task is None:
+        uart_monitor_task = asyncio.create_task(uart_monitor())
 
     async with websockets.serve(handler, HOST, PORT, max_size=50_000_000):
         print(f"Bezier WS server ws://{HOST}:{PORT}")
