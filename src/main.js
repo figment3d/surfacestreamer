@@ -1209,6 +1209,14 @@ function connect() {
             acceptOneFrame = true;
           }
         }
+
+        if (msg.type === "hardware_status") {
+          uartDetected = !!msg.uartDetected;
+
+          console.log("UART detected:", uartDetected);
+
+          updateUartStatus();
+        }
       } catch (e) {
         console.log("Bad WS text message", e);
       }

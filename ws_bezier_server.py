@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import websockets
-
+import serial
 
 # ============================================================
 # PID (optional)
@@ -139,6 +139,42 @@ print(f"noise_sigma={NOISE_SIGMA} ema_alpha={EMA_ALPHA} ctrl_gain={CTRL_GAIN}")
 print(f"pid.enabled={PID_ENABLED} pid.hz={PID_HZ} pid.target={PID_TARGET}")
 print("-----------------------------")
 
+# ============================================================
+# UART hardware detection
+# ============================================================
+UART_PORT = str(CFG.get("uart_port", "COM7"))
+UART_BAUD = int(CFG.get("uart_baud", 115200))
+
+def detect_uart_hardware() -> bool:
+    try:
+        with serial.Serial(
+            UART_PORT,
+            UART_BAUD,
+            timeout=2
+        ) as ser:
+            time.sleep(0.2)
+
+            ser.reset_input_buffer()
+            ser.write(b"PING\r\n")
+            ser.flush()
+
+            reply = ser.readline().decode(
+                errors="replace"
+            ).strip()
+
+            detected = reply == "SURFACE_STREAMER_READY"
+
+            print(
+                f"UART {UART_PORT}: "
+                f"{'DETECTED' if detected else 'NOT DETECTED'}"
+                f" ({reply!r})"
+            )
+
+            return detected
+
+    except serial.SerialException as e:
+        print(f"UART {UART_PORT}: NOT DETECTED ({e})")
+        return False
 
 # ============================================================
 # UDP receiver
@@ -322,11 +358,19 @@ async def broadcast_loop():
         else:
             next_t = time.perf_counter()
 
-
 async def handler(ws):
     print("CONNECT", id(ws))
     clients.add(ws)
     print("Clients now:", len(clients))
+
+    uart_detected = await asyncio.to_thread(
+        detect_uart_hardware
+    )
+
+    await ws.send(json.dumps({
+        "type": "hardware_status",
+        "uartDetected": uart_detected
+    }))
 
     async def rx_loop():
         global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change
