@@ -1210,13 +1210,17 @@ function connect() {
           }
         }
 
-        if (msg.type === "hardware_status") {
+       if (msg.type === "hardware_status") {
           uartDetected = !!msg.uartDetected;
+          i2cDetected = !!msg.i2cDetected;
 
           console.log("UART detected:", uartDetected);
+          console.log("I2C detected:", i2cDetected);
 
           updateUartStatus();
-        }
+          updateI2cStatus();
+          updateDiagnosticDisplay();
+        }     
       } catch (e) {
         console.log("Bad WS text message", e);
       }

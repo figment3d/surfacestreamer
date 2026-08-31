@@ -145,7 +145,8 @@ print("-----------------------------")
 UART_PORT = str(CFG.get("uart_port", "COM7"))
 UART_BAUD = int(CFG.get("uart_baud", 115200))
 
-def detect_uart_hardware() -> bool:
+def detect_hardware() -> tuple[bool, bool]:
+    """Return (uart_detected, i2c_detected) using one COM-port session."""
     try:
         with serial.Serial(
             UART_PORT,
@@ -153,19 +154,36 @@ def detect_uart_hardware() -> bool:
             timeout=0.5
         ) as ser:
             time.sleep(0.2)
-
             ser.reset_input_buffer()
+
+            # First prove the STM32 UART link is alive.
             ser.write(b"PING\r\n")
             ser.flush()
 
-            reply = ser.readline().decode(
+            uart_reply = ser.readline().decode(
                 errors="replace"
             ).strip()
 
-            return reply == "SURFACE_STREAMER_READY"
+            uart_detected = (uart_reply == "SURFACE_STREAMER_READY")
+            if not uart_detected:
+                return False, False
+
+            # Then ask the STM32 whether the VL53L1X ACKs on I2C.
+            ser.write(b"I2C_STATUS\r\n")
+            ser.flush()
+
+            i2c_reply = ser.readline().decode(
+                errors="replace"
+            ).strip()
+
+            print(f"[CBIT] I2C raw reply: {i2c_reply!r}")
+
+            i2c_detected = (i2c_reply == "I2C_READY")
+            
+            return True, i2c_detected
 
     except serial.SerialException:
-        return False
+        return False, False
 
 # ============================================================
 # UDP receiver
@@ -268,6 +286,7 @@ clients: set = set()
 broadcast_task: asyncio.Task | None = None
 uart_monitor_task: asyncio.Task | None = None
 uart_detected_state: bool | None = None
+i2c_detected_state: bool | None = None
 pending_source_change: str | None = None
 
 async def broadcast_loop():
@@ -352,24 +371,38 @@ async def broadcast_loop():
             next_t = time.perf_counter()
 
 async def uart_monitor():
-    global uart_detected_state
+    global uart_detected_state, i2c_detected_state
 
     while True:
-        uart_detected = await asyncio.to_thread(
-            detect_uart_hardware
+        uart_detected, i2c_detected = await asyncio.to_thread(
+            detect_hardware
         )
 
-        if uart_detected != uart_detected_state:
-            uart_detected_state = uart_detected
+        state_changed = (
+            uart_detected != uart_detected_state or
+            i2c_detected != i2c_detected_state
+        )
 
-            print(
-                f"[CBIT] UART state changed: "
-                f"{'ONLINE' if uart_detected else 'OFFLINE'}"
-            )
+        if state_changed:
+            if uart_detected != uart_detected_state:
+                print(
+                    f"[CBIT] UART state changed: "
+                    f"{'ONLINE' if uart_detected else 'OFFLINE'}"
+                )
+
+            if i2c_detected != i2c_detected_state:
+                print(
+                    f"[CBIT] I2C state changed: "
+                    f"{'ONLINE' if i2c_detected else 'OFFLINE'}"
+                )
+
+            uart_detected_state = uart_detected
+            i2c_detected_state = i2c_detected
 
             message = json.dumps({
                 "type": "hardware_status",
-                "uartDetected": uart_detected
+                "uartDetected": uart_detected,
+                "i2cDetected": i2c_detected
             })
 
             dead = []
@@ -393,7 +426,12 @@ async def handler(ws):
     if uart_detected_state is not None:
         await ws.send(json.dumps({
             "type": "hardware_status",
-            "uartDetected": uart_detected_state
+            "uartDetected": uart_detected_state,
+            "i2cDetected": (
+                i2c_detected_state
+                if i2c_detected_state is not None
+                else False
+            )
         }))
   
     async def rx_loop():
