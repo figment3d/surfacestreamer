@@ -536,9 +536,9 @@ let dragging = false;
 let lastX = 0, lastY = 0;
 
 canvas.addEventListener("mousedown", (e) => {
-  if (tcpEnabled) {
+  if (spiEnabled ) {
     dragging = true;
-    updateTcpCursor();
+    updateSpiCursor();
 
     lastX = e.clientX;
     lastY = e.clientY;
@@ -547,11 +547,11 @@ canvas.addEventListener("mousedown", (e) => {
 
 window.addEventListener("mouseup", () => {
   dragging = false;
-  updateTcpCursor();
+  updateSpiCursor();
 });
 
 window.addEventListener("mousemove", (e) => {
-  if (tcpEnabled && dragging) {
+  if (spiEnabled  && dragging) {
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
 
@@ -568,7 +568,7 @@ window.addEventListener("mousemove", (e) => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
-  if (tcpEnabled) {
+  if (spiEnabled ) {
     const s = Math.exp(e.deltaY * 0.001);
     radius = Math.max(0.6, Math.min(30.0, radius * s));
   }
@@ -801,7 +801,7 @@ function updateSpiStatus() {
       !(systemMode === "hardware" && !spiDetected);
 
     spiStatus.innerHTML +=
-      `<b>CAPABILITY:</b> Orientation color visualization ${capabilityAvailable ? "available" : "unavailable"}`;
+      `<b>CAPABILITY:</b> Camera orientation and zoom ${capabilityAvailable ? "available" : "unavailable"}`;
   }
 }
 
@@ -824,7 +824,7 @@ function updateTcpStatus() {
       !(systemMode === "hardware" && !tcpDetected);
 
     tcpStatus.innerHTML +=
-      `<b>CAPABILITY:</b> Camera rotation and zoom ${capabilityAvailable ? "available" : "unavailable"}`;
+      `<b>CAPABILITY:</b> Color visualization ${capabilityAvailable ? "available" : "unavailable"}`;
   }
 }
 
@@ -879,8 +879,8 @@ function updateUartStatus() {
   }
 }
 
-function updateTcpCursor() {
-  if (!tcpEnabled) {
+function updateSpiCursor() {
+  if (!spiEnabled) {
     canvas.style.cursor = "default";
   } else if (dragging) {
     canvas.style.cursor = "grabbing";
@@ -939,18 +939,18 @@ function updateDiagnosticDisplay() {
           "<b>CAPABILITY:</b> Live surface updates (health unknown)";
       }
 
-      if (spiEnabled &&
+    if (spiEnabled &&
           !(systemMode === "hardware" && !spiDetected)) {
         spiStatus.innerHTML =
           getModeDetails("spi") + "<br>" +
-          "<b>CAPABILITY:</b> Color visualization (health unknown)";
+          "<b>CAPABILITY:</b> Camera orientation and zoom (health unknown)";
       }
 
       if (tcpEnabled &&
           !(systemMode === "hardware" && !tcpDetected)) {
         tcpStatus.innerHTML =
           getModeDetails("tcp") + "<br>" +
-          "<b>CAPABILITY:</b> Camera rotation and zoom (health unknown)";
+          "<b>CAPABILITY:</b> Color visualization (health unknown)";
       }
     }
   } else {
@@ -1045,8 +1045,7 @@ function createSitlPanel() {
     </div>
 
     <div style="margin-top:12px;">
-      <label title="SPI connects the controller to the IMU. Disable it to simulate loss of accelerometer and gyroscope data.">
-        <input id="spiEnabled" type="checkbox">
+      <label title="SPI connects the controller to the IMU. Disable it to simulate loss of camera orientation control.">    <input id="spiEnabled" type="checkbox">
         SPI IMU
       </label>
 
@@ -1055,8 +1054,7 @@ function createSitlPanel() {
     </div>
 
     <div style="margin-top:12px;">
-      <label title="TCP provides reliable command and control. Disable it to simulate loss of remote camera commands.">
-        <input id="tcpEnabled" type="checkbox">
+      <label title="TCP provides reliable command and control. Disable it to simulate loss of remote color commands and settings.">       <input id="tcpEnabled" type="checkbox">
         TCP Control
       </label>
 
@@ -1105,7 +1103,7 @@ function createSitlPanel() {
   canCheckbox.checked = canEnabled;
   uartCheckbox.checked = uartEnabled;
 
-  updateTcpCursor();
+  updateSpiCursor();
 
   sitlModeRadio.addEventListener("change", () => {
     if (sitlModeRadio.checked) {
@@ -1141,18 +1139,20 @@ function createSitlPanel() {
 
   spiCheckbox.addEventListener("change", () => {
     spiEnabled = spiCheckbox.checked;
-    colorMode = spiEnabled ? 1 : 0;
+
+    if (!spiEnabled) {
+      dragging = false;
+    }
+
+    updateSpiCursor();
     updateSpiStatus();
     updateDiagnosticDisplay();
   });
 
   tcpCheckbox.addEventListener("change", () => {
     tcpEnabled = tcpCheckbox.checked;
+    colorMode = tcpEnabled ? 1 : 0;
 
-    if (!tcpEnabled) {
-      dragging = false;
-    }    
-    updateTcpCursor();
     updateTcpStatus();
     updateDiagnosticDisplay();
   });
@@ -1508,7 +1508,7 @@ async function boot() {
   if (typeof st.ema_alpha === "number") cfg.ema_alpha = st.ema_alpha;
 
   // SPI availability controls the IMU/orientation color visualization
-  colorMode = spiEnabled ? 1 : 0;
+  colorMode = tcpEnabled ? 1 : 0;
 
   console.log("config defaults:", cfg);
   console.log("restored state:", st);
