@@ -602,6 +602,8 @@ let spiDetected = false;
 let tcpDetected = false;
 let canDetected = false;
 
+let i2cRangeMm = null;
+
 let udpEnabled = true;
 let i2cEnabled = true;
 let spiEnabled = true;
@@ -758,8 +760,15 @@ function updateI2cStatus() {
       "SENSOR BUS DISABLED"
     );
 
+    const rangeText =
+      systemMode === "hardware" &&
+      i2cDetected &&
+      i2cRangeMm !== null
+        ? ` - Range ${i2cRangeMm} mm`
+        : "";
+
     i2cCheckbox.parentElement.lastChild.textContent =
-      ` I²C Range Sensor (${statusText})`;
+      ` I²C Range Sensor (${statusText})${rangeText}`;
 
     i2cStatus.innerHTML =
       getModeDetails("i2c") + "<br>";
@@ -1213,7 +1222,10 @@ function connect() {
        if (msg.type === "hardware_status") {
           uartDetected = !!msg.uartDetected;
           i2cDetected = !!msg.i2cDetected;
-
+          i2cRangeMm =
+            (typeof msg.i2cRangeMm === "number")
+              ? msg.i2cRangeMm
+              : null;
           console.log("UART detected:", uartDetected);
           console.log("I2C detected:", i2cDetected);
 
@@ -1394,7 +1406,26 @@ function render() {
   gl.useProgram(prog);
   gl.uniform1i(loc.uPNX, PNX);
   gl.uniform1i(loc.uPNY, PNY);
-  gl.uniform1f(loc.uHeightScale, heightScale);
+
+  let sensorScale = 1.0;
+
+  if (
+    systemMode === "hardware" &&
+    i2cEnabled &&
+    i2cDetected &&
+    i2cRangeMm !== null
+  ) {
+    const rangeMaxMm = 1000;
+
+    sensorScale = Math.max(
+      0.0,
+      Math.min(1.0, i2cRangeMm / rangeMaxMm)
+    );
+  }
+
+  const effectiveHeightScale = heightScale * sensorScale;
+
+  gl.uniform1f(loc.uHeightScale, effectiveHeightScale);
   gl.uniformMatrix4fv(loc.uMVP, false, mvp);
   gl.uniformMatrix4fv(loc.uModel, false, mat4Identity());
   gl.uniform3f(loc.uEye, vp.eye[0], vp.eye[1], vp.eye[2]);

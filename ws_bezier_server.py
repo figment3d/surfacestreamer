@@ -145,8 +145,8 @@ print("-----------------------------")
 UART_PORT = str(CFG.get("uart_port", "COM7"))
 UART_BAUD = int(CFG.get("uart_baud", 115200))
 
-def detect_hardware() -> tuple[bool, bool]:
-    """Return (uart_detected, i2c_detected) using one COM-port session."""
+def detect_hardware() -> tuple[bool, bool, int | None]:
+    """Return (uart_detected, i2c_detected, i2c_range_mm)."""
     try:
         with serial.Serial(
             UART_PORT,
@@ -165,10 +165,11 @@ def detect_hardware() -> tuple[bool, bool]:
             ).strip()
 
             uart_detected = (uart_reply == "SURFACE_STREAMER_READY")
-            if not uart_detected:
-                return False, False
 
-            # Then ask the STM32 whether the VL53L1X ACKs on I2C.
+            if not uart_detected:
+                return False, False, None
+
+            # Ask STM32 for I2C status and current VL53L1X range.
             ser.write(b"I2C_STATUS\r\n")
             ser.flush()
 
@@ -177,13 +178,24 @@ def detect_hardware() -> tuple[bool, bool]:
             ).strip()
 
             print(f"[CBIT] I2C raw reply: {i2c_reply!r}")
-
-            i2c_detected = (i2c_reply == "I2C_READY")
             
-            return True, i2c_detected
+            if i2c_reply.startswith("I2C_READY"):
+                parts = i2c_reply.split()
+
+                distance_mm = None
+
+                if len(parts) >= 2:
+                    try:
+                        distance_mm = int(parts[1])
+                    except ValueError:
+                        pass
+
+                return True, True, distance_mm
+
+            return True, False, None
 
     except serial.SerialException:
-        return False, False
+        return False, False, None
 
 # ============================================================
 # UDP receiver
@@ -374,7 +386,7 @@ async def uart_monitor():
     global uart_detected_state, i2c_detected_state
 
     while True:
-        uart_detected, i2c_detected = await asyncio.to_thread(
+        uart_detected, i2c_detected, i2c_range_mm = await asyncio.to_thread(
             detect_hardware
         )
 
@@ -396,25 +408,26 @@ async def uart_monitor():
                     f"{'ONLINE' if i2c_detected else 'OFFLINE'}"
                 )
 
-            uart_detected_state = uart_detected
-            i2c_detected_state = i2c_detected
+        uart_detected_state = uart_detected
+        i2c_detected_state = i2c_detected
 
-            message = json.dumps({
-                "type": "hardware_status",
-                "uartDetected": uart_detected,
-                "i2cDetected": i2c_detected
-            })
+        message = json.dumps({
+            "type": "hardware_status",
+            "uartDetected": uart_detected,
+            "i2cDetected": i2c_detected,
+            "i2cRangeMm": i2c_range_mm
+        })
 
-            dead = []
+        dead = []
 
-            for ws in list(clients):
-                try:
-                    await ws.send(message)
-                except Exception:
-                    dead.append(ws)
+        for ws in list(clients):
+            try:
+                await ws.send(message)
+            except Exception:
+                dead.append(ws)
 
-            for ws in dead:
-                clients.discard(ws)
+        for ws in dead:
+            clients.discard(ws)
 
         await asyncio.sleep(1.0)
         
