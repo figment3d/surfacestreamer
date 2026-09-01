@@ -157,14 +157,11 @@ def detect_hardware() -> tuple[bool, bool, int | None]:
             ser.reset_input_buffer()
 
             # First prove the STM32 UART link is alive.
-            ser.write(b"PING\r\n")
-            ser.flush()
-
-            uart_reply = ser.readline().decode(
-                errors="replace"
-            ).strip()
-
-            uart_detected = (uart_reply == "SURFACE_STREAMER_READY")
+            uart_detected = serial_command_matches(
+                ser,
+                "PING",
+                "SURFACE_STREAMER_READY"
+            )
 
             if not uart_detected:
                 return False, False, None
@@ -178,7 +175,7 @@ def detect_hardware() -> tuple[bool, bool, int | None]:
             ).strip()
 
             print(f"[CBIT] I2C raw reply: {i2c_reply!r}")
-            
+
             if i2c_reply.startswith("I2C_READY"):
                 parts = i2c_reply.split()
 
@@ -382,55 +379,104 @@ async def broadcast_loop():
         else:
             next_t = time.perf_counter()
 
+def serial_command_matches(ser, command: str, expected_reply: str) -> bool:
+    ser.write((command + "\r\n").encode())
+    ser.flush()
+
+    reply = ser.readline().decode(
+        errors="replace"
+    ).strip()
+
+    return reply == expected_reply
+     
 async def uart_monitor():
-    global uart_detected_state, i2c_detected_state
+    global clients, uart_detected_state, i2c_detected_state
 
     while True:
-        uart_detected, i2c_detected, i2c_range_mm = await asyncio.to_thread(
-            detect_hardware
-        )
+        try:
+            with serial.Serial(
+                UART_PORT,
+                UART_BAUD,
+                timeout=0.2
+            ) as ser:
 
-        state_changed = (
-            uart_detected != uart_detected_state or
-            i2c_detected != i2c_detected_state
-        )
+                time.sleep(0.2)
+                ser.reset_input_buffer()
 
-        if state_changed:
-            if uart_detected != uart_detected_state:
-                print(
-                    f"[CBIT] UART state changed: "
-                    f"{'ONLINE' if uart_detected else 'OFFLINE'}"
+                last_i2c_range_mm = None
+                i2c_fail_count = 0
+
+                # Verify STM32 once after opening COM7
+                uart_detected = serial_command_matches(
+                    ser,
+                    "PING",
+                    "SURFACE_STREAMER_READY"
                 )
 
-            if i2c_detected != i2c_detected_state:
-                print(
-                    f"[CBIT] I2C state changed: "
-                    f"{'ONLINE' if i2c_detected else 'OFFLINE'}"
-                )
+                while True:
+                    i2c_detected = False
+                    i2c_range_mm = None
 
-        uart_detected_state = uart_detected
-        i2c_detected_state = i2c_detected
+                    if uart_detected:
+                        ser.write(b"I2C_STATUS\r\n")
+                        ser.flush()
 
-        message = json.dumps({
-            "type": "hardware_status",
-            "uartDetected": uart_detected,
-            "i2cDetected": i2c_detected,
-            "i2cRangeMm": i2c_range_mm
-        })
+                        i2c_reply = ser.readline().decode(
+                            errors="replace"
+                        ).strip()
 
-        dead = []
+                        if i2c_reply.startswith("I2C_READY"):
+                            parts = i2c_reply.split()
 
-        for ws in list(clients):
-            try:
-                await ws.send(message)
-            except Exception:
-                dead.append(ws)
+                            if len(parts) >= 2:
+                                try:
+                                    last_i2c_range_mm = int(parts[1])
+                                    i2c_fail_count = 0
+                                    i2c_detected = True
+                                    i2c_range_mm = last_i2c_range_mm
 
-        for ws in dead:
-            clients.discard(ws)
+                                except ValueError:
+                                    i2c_fail_count += 1
+                            else:
+                                i2c_fail_count += 1
 
-        await asyncio.sleep(1.0)
-        
+                        else:
+                            i2c_fail_count += 1
+
+                        # Don't declare I2C offline because of
+                        # one or two missed/invalid responses.
+                        if (
+                            not i2c_detected
+                            and i2c_fail_count < 3
+                            and last_i2c_range_mm is not None
+                        ):
+                            i2c_detected = True
+                            i2c_range_mm = last_i2c_range_mm
+
+                    uart_detected_state = uart_detected
+                    i2c_detected_state = i2c_detected
+
+                    message = json.dumps({
+                        "type": "hardware_status",
+                        "uartDetected": uart_detected,
+                        "i2cDetected": i2c_detected,
+                        "i2cRangeMm": i2c_range_mm
+                    })
+
+                    if clients:
+                        await asyncio.gather(
+                            *[
+                                client.send(message)
+                                for client in clients
+                            ],
+                            return_exceptions=True
+                        )
+
+                    await asyncio.sleep(0.05)
+
+        except serial.SerialException:
+            await asyncio.sleep(1.0)
+
 async def handler(ws):
     print("CONNECT", id(ws))
     clients.add(ws)

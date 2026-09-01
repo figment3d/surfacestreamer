@@ -588,6 +588,7 @@ function getViewParams() {
 }
 
 // ======================================================
+// Globals
 // WebSocket + live cfg (server-side knobs live here)
 // ======================================================
 let ws = null;
@@ -601,6 +602,7 @@ let i2cDetected = false;
 let spiDetected = false;
 let tcpDetected = false;
 let canDetected = false;
+let sensorScale = 1.0;
 
 let i2cRangeMm = null;
 
@@ -1407,23 +1409,25 @@ function render() {
   gl.uniform1i(loc.uPNX, PNX);
   gl.uniform1i(loc.uPNY, PNY);
 
-  let sensorScale = 1.0;
-
   if (
     systemMode === "hardware" &&
     i2cEnabled &&
     i2cDetected &&
-    i2cRangeMm !== null
+    i2cRangeMm !== null 
   ) {
     const rangeMaxMm = 1000;
+    const sensorMaxScale = 10.0;
 
     sensorScale = Math.max(
       0.0,
       Math.min(1.0, i2cRangeMm / rangeMaxMm)
-    );
+    ) * sensorMaxScale;
   }
 
-  const effectiveHeightScale = heightScale * sensorScale;
+  const effectiveHeightScale =
+    (systemMode === "hardware" && i2cEnabled)
+      ? heightScale * sensorScale
+      : heightScale;
 
   gl.uniform1f(loc.uHeightScale, effectiveHeightScale);
   gl.uniformMatrix4fv(loc.uMVP, false, mvp);
