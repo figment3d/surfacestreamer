@@ -407,13 +407,23 @@ async def uart_monitor():
                 last_i2c_range_mm = None
                 i2c_fail_count = 0
 
-                # Verify STM32 once after opening COM7
-                uart_detected = serial_command_matches(
-                    ser,
-                    "PING",
-                    "SURFACE_STREAMER_READY"
-                )
+                uart_detected = False
 
+                for _ in range(10):
+                    if serial_command_matches(
+                        ser,
+                        "PING",
+                        "SURFACE_STREAMER_READY"
+                    ):
+                        uart_detected = True
+                        break
+
+                    await asyncio.sleep(0.05)
+
+                if not uart_detected:
+                    await asyncio.sleep(0.1)
+                    continue 
+ 
                 while True:
                     i2c_detected = False
                     i2c_range_mm = None
@@ -488,8 +498,29 @@ async def uart_monitor():
                     await asyncio.sleep(0.05)
 
         except serial.SerialException:
-            await asyncio.sleep(1.0)
+            uart_detected_state = False
+            i2c_detected_state = False
+            spi_detected_state = False
 
+            message = json.dumps({
+                "type": "hardware_status",
+                "uartDetected": False,
+                "i2cDetected": False,
+                "spiDetected": False,
+                "i2cRangeMm": None
+            })
+
+            if clients:
+                await asyncio.gather(
+                    *[
+                        client.send(message)
+                        for client in clients
+                    ],
+                    return_exceptions=True
+                )
+
+            await asyncio.sleep(1.0)
+            
 async def handler(ws):
     print("CONNECT", id(ws))
     clients.add(ws)
