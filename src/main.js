@@ -1221,20 +1221,25 @@ function connect() {
           }
         }
 
-       if (msg.type === "hardware_status") {
+        if (msg.type === "hardware_status") {
           uartDetected = !!msg.uartDetected;
           i2cDetected = !!msg.i2cDetected;
+          spiDetected = !!msg.spiDetected;
+
           i2cRangeMm =
             (typeof msg.i2cRangeMm === "number")
               ? msg.i2cRangeMm
               : null;
+
           console.log("UART detected:", uartDetected);
           console.log("I2C detected:", i2cDetected);
+          console.log("SPI detected:", spiDetected);
 
           updateUartStatus();
           updateI2cStatus();
+          updateSpiStatus();
           updateDiagnosticDisplay();
-        }     
+        }
       } catch (e) {
         console.log("Bad WS text message", e);
       }

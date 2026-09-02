@@ -296,6 +296,7 @@ broadcast_task: asyncio.Task | None = None
 uart_monitor_task: asyncio.Task | None = None
 uart_detected_state: bool | None = None
 i2c_detected_state: bool | None = None
+spi_detected_state: bool | None = None
 pending_source_change: str | None = None
 
 async def broadcast_loop():
@@ -390,7 +391,7 @@ def serial_command_matches(ser, command: str, expected_reply: str) -> bool:
     return reply == expected_reply
      
 async def uart_monitor():
-    global clients, uart_detected_state, i2c_detected_state
+    global clients, uart_detected_state, i2c_detected_state, spi_detected_state
 
     while True:
         try:
@@ -416,6 +417,7 @@ async def uart_monitor():
                 while True:
                     i2c_detected = False
                     i2c_range_mm = None
+                    spi_detected = False
 
                     if uart_detected:
                         ser.write(b"I2C_STATUS\r\n")
@@ -453,13 +455,24 @@ async def uart_monitor():
                             i2c_detected = True
                             i2c_range_mm = last_i2c_range_mm
 
+                        ser.write(b"SPI_STATUS\r\n")
+                        ser.flush()
+
+                        spi_reply = ser.readline().decode(
+                            errors="replace"
+                        ).strip()
+
+                        spi_detected = (spi_reply == "SPI_CHIP_ID 0x24")
+
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
+                    spi_detected_state = spi_detected
 
                     message = json.dumps({
                         "type": "hardware_status",
                         "uartDetected": uart_detected,
                         "i2cDetected": i2c_detected,
+                        "spiDetected": spi_detected,
                         "i2cRangeMm": i2c_range_mm
                     })
 
@@ -489,6 +502,11 @@ async def handler(ws):
             "i2cDetected": (
                 i2c_detected_state
                 if i2c_detected_state is not None
+                else False
+            ),
+            "spiDetected": (
+                spi_detected_state
+                if spi_detected_state is not None
                 else False
             )
         }))
