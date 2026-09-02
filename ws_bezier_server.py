@@ -104,7 +104,7 @@ if BASIS != "bezier":
     raise ValueError(f"This server is Bezier-only for now. BASIS={BASIS!r}")
 
 # Noise + smoothing controls (hotkeys update these live)
-NOISE_SIGMA = float(CFG.get("noise_sigma", 0.01))  # 0 disables noise
+NOISE_SIGMA = float(CFG.get("noise_sigma", 0.005))  # 0 disables noise
 EMA_ALPHA = float(CFG.get("ema_alpha", 0.25))      # 0 disables EMA
 
 # Optional: overall gain multiplier on the base wave (PID can modulate this)

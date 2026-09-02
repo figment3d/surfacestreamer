@@ -1416,7 +1416,7 @@ function render() {
     i2cRangeMm !== null 
   ) {
     const rangeMaxMm = 1000;
-    const sensorMaxScale = 10.0;
+    const sensorMaxScale = (systemMode === "hardware")? 10.0 : 1.0;
 
     sensorScale = Math.max(
       0.0,
