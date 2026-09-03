@@ -428,6 +428,8 @@ async def uart_monitor():
                     i2c_detected = False
                     i2c_range_mm = None
                     spi_detected = False
+                    acc_x = acc_y = acc_z = None
+                    gyr_x = gyr_y = gyr_z = None
 
                     if uart_detected:
                         ser.write(b"I2C_STATUS\r\n")
@@ -473,6 +475,30 @@ async def uart_monitor():
                         ).strip()
 
                         spi_detected = (spi_reply == "SPI_CHIP_ID 0x24")
+                        if spi_detected:
+                            ser.write(b"SPI_DATA\r\n")
+                            ser.flush()
+
+                            spi_data_reply = ser.readline().decode(
+                                errors="replace"
+                            ).strip()
+
+                            parts = spi_data_reply.split()
+
+                            if (
+                                len(parts) == 8
+                                and parts[0] == "ACC"
+                                and parts[4] == "GYR"
+                            ):
+                                try:
+                                    acc_x = int(parts[1])
+                                    acc_y = int(parts[2])
+                                    acc_z = int(parts[3])
+                                    gyr_x = int(parts[5])
+                                    gyr_y = int(parts[6])
+                                    gyr_z = int(parts[7])
+                                except ValueError:
+                                    pass
 
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
@@ -483,9 +509,15 @@ async def uart_monitor():
                         "uartDetected": uart_detected,
                         "i2cDetected": i2c_detected,
                         "spiDetected": spi_detected,
-                        "i2cRangeMm": i2c_range_mm
+                        "i2cRangeMm": i2c_range_mm,
+                        "accX": acc_x,
+                        "accY": acc_y,
+                        "accZ": acc_z,
+                        "gyrX": gyr_x,
+                        "gyrY": gyr_y,
+                        "gyrZ": gyr_z
                     })
-
+                    
                     if clients:
                         await asyncio.gather(
                             *[
@@ -507,9 +539,15 @@ async def uart_monitor():
                 "uartDetected": False,
                 "i2cDetected": False,
                 "spiDetected": False,
-                "i2cRangeMm": None
+                "i2cRangeMm": None,
+                "accX": None,
+                "accY": None,
+                "accZ": None,
+                "gyrX": None,
+                "gyrY": None,
+                "gyrZ": None
             })
-
+                        
             if clients:
                 await asyncio.gather(
                     *[
@@ -520,7 +558,7 @@ async def uart_monitor():
                 )
 
             await asyncio.sleep(1.0)
-            
+
 async def handler(ws):
     print("CONNECT", id(ws))
     clients.add(ws)
