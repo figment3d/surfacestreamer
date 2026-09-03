@@ -536,7 +536,10 @@ let dragging = false;
 let lastX = 0, lastY = 0;
 
 canvas.addEventListener("mousedown", (e) => {
-  if (spiEnabled ) {
+  if (
+    (systemMode !== "hardware" && spiEnabled) ||
+    (systemMode === "hardware" && !spiEnabled)
+  ) {
     dragging = true;
     updateSpiCursor();
 
@@ -551,7 +554,13 @@ window.addEventListener("mouseup", () => {
 });
 
 window.addEventListener("mousemove", (e) => {
-  if (spiEnabled  && dragging) {
+  if (
+    dragging &&
+    (
+      (systemMode !== "hardware" && spiEnabled) ||
+      (systemMode === "hardware" && !spiEnabled)
+    )
+  ) {
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;
 
@@ -568,7 +577,10 @@ window.addEventListener("mousemove", (e) => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
-  if (spiEnabled ) {
+  if (
+    (systemMode !== "hardware" && spiEnabled) ||
+    (systemMode === "hardware" && !spiEnabled)
+  ) {
     const s = Math.exp(e.deltaY * 0.001);
     radius = Math.max(0.6, Math.min(30.0, radius * s));
   }
@@ -605,6 +617,14 @@ let canDetected = false;
 let sensorScale = 1.0;
 
 let i2cRangeMm = null;
+
+let accX = null;
+let accY = null;
+let accZ = null;
+
+let gyrX = null;
+let gyrY = null;
+let gyrZ = null;
 
 let udpEnabled = true;
 let i2cEnabled = true;
@@ -784,6 +804,10 @@ function updateI2cStatus() {
   }
 }
 
+function roundTo(value, step) {
+  return Math.round(value / step) * step;
+}
+
 function updateSpiStatus() {
   if (spiStatus) {
     const statusText = getInterfaceStatus(
@@ -804,6 +828,27 @@ function updateSpiStatus() {
 
     spiStatus.innerHTML +=
       `<b>CAPABILITY:</b> Camera orientation and zoom ${capabilityAvailable ? "available" : "unavailable"}`;
+
+    if (
+      systemMode === "hardware" &&
+      spiDetected &&
+      accX !== null &&
+      accY !== null &&
+      accZ !== null &&
+      gyrX !== null &&
+      gyrY !== null &&
+      gyrZ !== null
+    ) {
+        spiStatus.innerHTML +=
+          `<br><br><b>ACCEL:</b> X ${roundTo(accX, 100)} &nbsp; Y ${roundTo(accY, 100)} &nbsp; Z ${roundTo(accZ, 100)}`;
+
+        const gx = Math.abs(gyrX) < 20 ? 0 : roundTo(gyrX, 10);
+        const gy = Math.abs(gyrY) < 20 ? 0 : roundTo(gyrY, 10);
+        const gz = Math.abs(gyrZ) < 20 ? 0 : roundTo(gyrZ, 10);
+
+        spiStatus.innerHTML +=
+          `<br><b>GYRO:</b> X ${gx} &nbsp; Y ${gy} &nbsp; Z ${gz}`;
+    }
   }
 }
 
@@ -1230,6 +1275,25 @@ function connect() {
             (typeof msg.i2cRangeMm === "number")
               ? msg.i2cRangeMm
               : null;
+
+          accX = (typeof msg.accX === "number") ? msg.accX : null;
+          accY = (typeof msg.accY === "number") ? msg.accY : null;
+          accZ = (typeof msg.accZ === "number") ? msg.accZ : null;
+
+          gyrX = (typeof msg.gyrX === "number") ? msg.gyrX : null;
+          gyrY = (typeof msg.gyrY === "number") ? msg.gyrY : null;
+          gyrZ = (typeof msg.gyrZ === "number") ? msg.gyrZ : null;
+
+          if (
+            systemMode === "hardware" &&
+            spiEnabled &&
+            spiDetected &&
+            accX !== null &&
+            accY != null
+          ) {
+            pitch = Math.max(-1.45, Math.min(1.45, accX * 0.0003));
+            yaw = accY * 0.0003;
+          }
 
           console.log("UART detected:", uartDetected);
           console.log("I2C detected:", i2cDetected);
