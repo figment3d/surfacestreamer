@@ -626,6 +626,10 @@ let gyrX = null;
 let gyrY = null;
 let gyrZ = null;
 
+let lastR = 0.5;
+let lastG = 0.5;
+let lastB = 0.5;
+
 let udpEnabled = true;
 let i2cEnabled = true;
 let spiEnabled = true;
@@ -822,12 +826,17 @@ function updateSpiStatus() {
     spiStatus.innerHTML =
       getModeDetails("spi") + "<br>";
 
-    const capabilityAvailable =
-      spiEnabled &&
-      !(systemMode === "hardware" && !spiDetected);
-
-    spiStatus.innerHTML +=
-      `<b>CAPABILITY:</b> Camera orientation and zoom ${capabilityAvailable ? "available" : "unavailable"}`;
+    if (systemMode === "hardware") {
+      spiStatus.innerHTML +=
+        spiEnabled && spiDetected
+          ? `<b>CAPABILITY:</b> Camera orientation available via moving BMI270`
+          : `<b>CAPABILITY:</b> Camera orientation and zoom available via mouse`;
+    } else {
+      spiStatus.innerHTML +=
+        spiEnabled
+          ? `<b>CAPABILITY:</b> Camera orientation available via mouse`
+          : `<b>CAPABILITY:</b> Camera orientation unavailable`;
+    }
 
     if (
       systemMode === "hardware" &&
@@ -842,9 +851,9 @@ function updateSpiStatus() {
         spiStatus.innerHTML +=
           `<br><br><b>ACCEL:</b> X ${roundTo(accX, 100)} &nbsp; Y ${roundTo(accY, 100)} &nbsp; Z ${roundTo(accZ, 100)}`;
 
-        const gx = Math.abs(gyrX) < 20 ? 0 : roundTo(gyrX, 10);
-        const gy = Math.abs(gyrY) < 20 ? 0 : roundTo(gyrY, 10);
-        const gz = Math.abs(gyrZ) < 20 ? 0 : roundTo(gyrZ, 10);
+        const gx = gyrX; // Math.abs(gyrX) < 20 ? 0 : roundTo(gyrX, 10);
+        const gy = gyrY; // Math.abs(gyrY) < 20 ? 0 : roundTo(gyrY, 10);
+        const gz = gyrZ; // Math.abs(gyrZ) < 20 ? 0 : roundTo(gyrZ, 10);
 
         spiStatus.innerHTML +=
           `<br><b>GYRO:</b> X ${gx} &nbsp; Y ${gy} &nbsp; Z ${gz}`;
@@ -1289,10 +1298,33 @@ function connect() {
             spiEnabled &&
             spiDetected &&
             accX !== null &&
-            accY != null
+            accY != null &&
+            gyrX != null &&
+            gyrY != null &&
+            gyrZ != null 
           ) {
             pitch = Math.max(-1.45, Math.min(1.45, accX * 0.0003));
             yaw = accY * 0.0003;
+
+            const gyroScale = 10000;
+
+            const r = Math.max(0, Math.min(1, 0.5 + gyrX / gyroScale));
+            const g = Math.max(0, Math.min(1, 0.5 + gyrY / gyroScale));
+            const b = Math.max(0, Math.min(1, 0.5 + gyrZ / gyroScale));
+
+            const colorThreshold = 0.01;
+
+            if (
+              Math.abs(r - lastR) > colorThreshold ||
+              Math.abs(g - lastG) > colorThreshold ||
+              Math.abs(b - lastB) > colorThreshold
+            ) {
+              gl.clearColor(r, g, b, 1.0);
+
+              lastR = r;
+              lastG = g;
+              lastB = b;
+            }
           }
 
           console.log("UART detected:", uartDetected);
