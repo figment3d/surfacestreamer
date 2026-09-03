@@ -577,13 +577,8 @@ window.addEventListener("mousemove", (e) => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
 
-  if (
-    (systemMode !== "hardware" && spiEnabled) ||
-    (systemMode === "hardware" && !spiEnabled)
-  ) {
-    const s = Math.exp(e.deltaY * 0.001);
-    radius = Math.max(0.6, Math.min(30.0, radius * s));
-  }
+  const s = Math.exp(e.deltaY * 0.001);
+  radius = Math.max(0.6, Math.min(30.0, radius * s));
 }, { passive:false });
 
 function getViewParams() {
