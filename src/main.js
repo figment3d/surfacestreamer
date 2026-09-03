@@ -296,7 +296,17 @@ vec3 shadeWithBase(vec3 base) {
 void main() {
   vec3 baseGray = vec3(0.38, 0.40, 0.43);
   vec3 extent = max(uBBoxMax - uBBoxMin, vec3(1e-6));
-  vec3 rgb = saturate((vPos - uBBoxMin) / extent);
+  
+  float r = clamp((vPos.x - uBBoxMin.x) / extent.x, 0.0, 1.0);
+  float ySpan = max(extent.y, 0.75);
+  float g = clamp(
+      (vPos.y - uBBoxMin.y) / ySpan,
+      0.0,
+      1.0
+  );
+  float b = clamp((vPos.z - uBBoxMin.z) / extent.z, 0.0, 1.0);
+
+  vec3 rgb = vec3(r, g, b);
   vec3 base = (uColorMode == 1) ? rgb : baseGray;
   vec3 color = shadeWithBase(base);
   color = pow(color, vec3(1.05));
@@ -1448,6 +1458,48 @@ window.addEventListener("keydown", (e) => {
     saveState({ noise_sigma: next });
     console.log("noise_sigma:", next.toFixed(4));
   }
+  // Wave frequency (server-side)
+  else if (e.key === "d" || e.key === "D") {
+    const cur = (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : 1.0;
+    const next = Math.max(0.1, cur / 1.1);
+
+    if (cfg) cfg.wave_frequency = next;
+    sendCfgUpdate({ wave_frequency: next });
+    saveState({ wave_frequency: next });
+
+    console.log("wave_frequency:", next.toFixed(2));
+
+  } else if (e.key === "f" || e.key === "F") {
+    const cur = (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : 1.0;
+    const next = cur * 1.1;
+
+    if (cfg) cfg.wave_frequency = next;
+    sendCfgUpdate({ wave_frequency: next });
+    saveState({ wave_frequency: next });
+
+    console.log("wave_frequency:", next.toFixed(2));
+  }
+  // Wave amplitude (server-side)
+  else if (e.key === "z" || e.key === "Z") {
+    const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : 1.0;
+    const next = Math.max(0.0, cur / 1.1);
+
+    if (cfg) cfg.wave_amplitude = next;
+    sendCfgUpdate({ wave_amplitude: next });
+    saveState({ wave_amplitude: next });
+
+    console.log("wave_amplitude:", next.toFixed(2));
+
+  } else if (e.key === "a" || e.key === "A") {
+    const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : 1.0;
+    const next = cur * 1.1;
+
+    if (cfg) cfg.wave_amplitude = next;
+    sendCfgUpdate({ wave_amplitude: next });
+    saveState({ wave_amplitude: next });
+
+    console.log("wave_amplitude:", next.toFixed(2));
+  }
 
   // EMA alpha (server-side)
   else if (e.key === "e" || e.key === "E") {
@@ -1475,6 +1527,8 @@ window.addEventListener("keydown", (e) => {
       yaw, pitch, radius,
       noise_sigma: (cfg && typeof cfg.noise_sigma === "number") ? cfg.noise_sigma : undefined,
       ema_alpha: (cfg && typeof cfg.ema_alpha === "number") ? cfg.ema_alpha : undefined,
+      wave_frequency: (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : undefined,
+      wave_amplitude: (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : undefined,
     });
     console.log("STATE SAVED");
   } else if (e.key === "Backspace") {

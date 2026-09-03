@@ -106,6 +106,8 @@ if BASIS != "bezier":
 # Noise + smoothing controls (hotkeys update these live)
 NOISE_SIGMA = float(CFG.get("noise_sigma", 0.005))  # 0 disables noise
 EMA_ALPHA = float(CFG.get("ema_alpha", 0.25))      # 0 disables EMA
+WAVE_FREQUENCY = float(CFG.get("wave_frequency", 1.0))
+WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", 1.0))
 
 # Optional: overall gain multiplier on the base wave (PID can modulate this)
 CTRL_GAIN = float(CFG.get("ctrl_gain", 1.0))
@@ -226,14 +228,14 @@ async def udp_receiver():
 _prev_base: np.ndarray | None = None        # EMA state for base signal
 _noise_unit: np.ndarray | None = None       # fixed noise pattern (unit variance)
 
-
 def control_height(X: np.ndarray, Z: np.ndarray, t: float) -> np.ndarray:
-    # Keep amplitudes small; viewer scales via heightScale
     return (
-        0.02 * np.sin(6.0 * X + t * 1.5) * np.cos(5.5 * Z + t * 1.3)
-        + 0.01 * np.sin(10.0 * (X * X + Z * Z) - t * 2.0)
+        WAVE_AMPLITUDE * (
+            0.02 * np.sin((6.0 * WAVE_FREQUENCY) * X + t * 1.5)
+            * np.cos((5.5 * WAVE_FREQUENCY) * Z + t * 1.3)
+            + 0.01 * np.sin((10.0 * WAVE_FREQUENCY) * (X * X + Z * Z) - t * 2.0)
+        )
     ).astype(np.float32)
-
 
 def make_patch_ctrl16_bezier(t: float) -> np.ndarray:
     """
@@ -517,7 +519,7 @@ async def uart_monitor():
                         "gyrY": gyr_y,
                         "gyrZ": gyr_z
                     })
-                    
+
                     if clients:
                         await asyncio.gather(
                             *[
@@ -581,7 +583,7 @@ async def handler(ws):
         }))
   
     async def rx_loop():
-        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change
+        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, WAVE_FREQUENCY, WAVE_AMPLITUDE, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change
         try:
             async for msg in ws:
                 if isinstance(msg, (bytes, bytearray)):
@@ -601,6 +603,14 @@ async def handler(ws):
                 if "noise_sigma" in j:
                     NOISE_SIGMA = max(0.0, float(j["noise_sigma"]))
                     print(f"[LIVE] noise_sigma={NOISE_SIGMA:.4f}")
+
+                if "wave_frequency" in j:
+                    WAVE_FREQUENCY = max(0.1, float(j["wave_frequency"]))
+                    print(f"[LIVE] wave_frequency={WAVE_FREQUENCY:.2f}")
+
+                if "wave_amplitude" in j:
+                    WAVE_AMPLITUDE = max(0.0, float(j["wave_amplitude"]))
+                    print(f"[LIVE] wave_amplitude={WAVE_AMPLITUDE:.2f}")
 
                 if "ema_alpha" in j:
                     EMA_ALPHA = max(0.0, min(1.0, float(j["ema_alpha"])))
