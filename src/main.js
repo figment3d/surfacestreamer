@@ -635,6 +635,12 @@ let lastR = 0.5;
 let lastG = 0.5;
 let lastB = 0.5;
 
+let spiControlWasActive = false;
+let spiBaseAccX = 0;
+let spiBaseAccY = 0;
+let spiBasePitch = 0;
+let spiBaseYaw = 0;
+
 let udpEnabled = true;
 let i2cEnabled = true;
 let spiEnabled = true;
@@ -1308,8 +1314,21 @@ function connect() {
             gyrY != null &&
             gyrZ != null 
           ) {
-            pitch = Math.max(-1.45, Math.min(1.45, accX * 0.0003));
-            yaw = -accY * 0.0003;
+
+            if (!spiControlWasActive) {
+              spiBaseAccX = accX;
+              spiBaseAccY = accY;
+              spiBasePitch = pitch;
+              spiBaseYaw = yaw;
+              spiControlWasActive = true;
+            }
+
+            pitch = Math.max(
+              -1.45,
+              Math.min(1.45, spiBasePitch + (accX - spiBaseAccX) * 0.0003)
+            );
+
+            yaw = spiBaseYaw - (accY - spiBaseAccY) * 0.0003;
 
             const gyroScale = 10000;
 
@@ -1331,7 +1350,10 @@ function connect() {
               lastB = b;
             }
           }
-
+          else {
+            spiControlWasActive = false;
+          }
+          
           console.log("UART detected:", uartDetected);
           console.log("I2C detected:", i2cDetected);
           console.log("SPI detected:", spiDetected);
