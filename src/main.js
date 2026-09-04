@@ -690,12 +690,28 @@ let cfg = null;
 let systemMode = "sitl";   // "sitl" or "hardware"
 let sitlModeRadio = null;
 let hardwareModeRadio = null;
+
+let uartEnabled = true;
+let udpEnabled = true;
+let i2cEnabled = true;
+let spiEnabled = true;
+let tcpEnabled = true;
+let canEnabled = true;
+
 let uartDetected = false;
 let udpDetected = false;
 let i2cDetected = false;
 let spiDetected = false;
 let tcpDetected = false;
 let canDetected = false;
+
+let uartSimulated = true;
+let udpSimulated = true;
+let i2cSimulated = true;
+let spiSimulated = true;
+let tcpSimulated = false;
+let canSimulated = false;
+
 let sensorScale = 1.0;
 
 let i2cRangeMm = null;
@@ -720,13 +736,7 @@ let spiBaseAccY = 0;
 let spiBasePitch = 0;
 let spiBaseYaw = 0;
 
-let udpEnabled = true;
-let i2cEnabled = true;
-let spiEnabled = true;
-let tcpEnabled = true;
 let acceptOneFrame = false;
-let canEnabled = true;
-let uartEnabled = true;
 
 let udpCheckbox = null;
 let udpStatus = null;
@@ -770,21 +780,19 @@ const DEFAULT_STATE = {
   wave_amplitude: DEFAULT_WAVE_AMPLITUDE,
 };
 
-function getInterfaceStatus(enabled, detected, disabledText, monitorWithCan = true) {
+function getInterfaceStatus(enabled, detected, simulated, disabledText, monitorWithCan = true) {
   let statusText = "";
 
   if (!enabled) {
     statusText = disabledText;
-
-    if (monitorWithCan && !canEnabled) {
-      statusText += ", UNMONITORED";
-    }
-  } else if (systemMode === "hardware" && !detected) {
-    statusText = "HARDWARE NOT DETECTED";
-  } else if (monitorWithCan && !canEnabled) {
-    statusText = "UNKNOWN";
+  } else if (systemMode === "sitl") {
+    statusText = simulated ? "SIMULATED" : "UNKNOWN";
   } else {
-    statusText = "ONLINE";
+    statusText = detected ? "ONLINE" : "HARDWARE NOT DETECTED";
+  }
+
+  if (enabled && monitorWithCan && !canEnabled) {
+    statusText += ", UNMONITORED";
   }
 
   return statusText;
@@ -879,6 +887,7 @@ function updateUdpStatus() {
     const statusText = getInterfaceStatus(
       udpEnabled,
       udpDetected,
+      udpSimulated,
       "NETWORK DISABLED"
     );
 
@@ -902,7 +911,8 @@ function updateI2cStatus() {
     const statusText = getInterfaceStatus(
       i2cEnabled,
       i2cDetected,
-      "SENSOR BUS DISABLED"
+      i2cSimulated,
+      "RANGE SENSOR DISABLED"
     );
 
     const rangeText =
@@ -936,7 +946,8 @@ function updateSpiStatus() {
     const statusText = getInterfaceStatus(
       spiEnabled,
       spiDetected,
-      "SENSOR BUS DISABLED"
+      spiSimulated,
+      "TILT SENSOR DISABLED"
     );
 
     const accelText =
@@ -989,7 +1000,8 @@ function updateTcpStatus() {
     const statusText = getInterfaceStatus(
       tcpEnabled,
       tcpDetected,
-      "CONTROL LINK DISABLED"
+      tcpSimulated,
+      "COLOR DISABLED"
     );
 
     tcpCheckbox.parentElement.lastChild.textContent =
@@ -1012,7 +1024,8 @@ function updateCanStatus() {
     const statusText = getInterfaceStatus(
       canEnabled,
       canDetected,
-      "BUS OFFLINE",
+      canSimulated,
+      "MONITORING DISABLED",
       false
     );
 
@@ -1038,6 +1051,7 @@ function updateUartStatus() {
     const statusText = getInterfaceStatus(
       uartEnabled,
       uartDetected,
+      uartSimulated,
       "DIAGNOSTICS DISABLED"
     );
 
@@ -1195,7 +1209,7 @@ function createSitlPanel() {
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button id="saveStateButton" type="button">Save</button>
         <button id="loadStateButton" type="button">Load</button>
-        <button id="restoreStateButton" type="button">Restore</button>        
+        <button id="restoreStateButton" type="button">Restore Defaults</button>        
       </div>      
     </div>
 
@@ -1628,7 +1642,7 @@ window.addEventListener("keydown", (e) => {
     console.log("wave_frequency:", next.toFixed(2));
   }
   // Wave amplitude (server-side)
-  else if (e.key === "z" || e.key === "Z") {
+  else if (e.key === "s" || e.key === "S") {
     const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : DEFAULT_WAVE_AMPLITUDE;
     const next = Math.max(0.0, cur / 1.1);
 
