@@ -106,8 +106,9 @@ if BASIS != "bezier":
 # Noise + smoothing controls (hotkeys update these live)
 NOISE_SIGMA = float(CFG.get("noise_sigma", 0.005))  # 0 disables noise
 EMA_ALPHA = float(CFG.get("ema_alpha", 0.25))      # 0 disables EMA
-WAVE_FREQUENCY = float(CFG.get("wave_frequency", 1.0))
-WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", 1.0))
+
+WAVE_FREQUENCY = float(CFG.get("wave_frequency", DEFAULT_WAVE_FREQUENCY))
+WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", DEFAULT_WAVE_AMPLITUDE))
 
 # Optional: overall gain multiplier on the base wave (PID can modulate this)
 CTRL_GAIN = float(CFG.get("ctrl_gain", 1.0))
@@ -270,7 +271,7 @@ def make_patch_ctrl16_bezier(t: float) -> np.ndarray:
     # 3) Add fixed-pattern noise AFTER EMA
     G = base
     global _noise_unit
-    s = float(NOISE_SIGMA)
+    s = float(NOISE_SIGMA) * np.sqrt(WAVE_FREQUENCY)
     if s > 0.0:
         if _noise_unit is None or _noise_unit.shape != G.shape:
             _noise_unit = RNG.normal(0.0, 1.0, size=G.shape).astype(np.float32)

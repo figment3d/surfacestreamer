@@ -46,8 +46,12 @@ PORT = int(CFG.get("udp_port", 9999))         # UDP receiver port (we'll add rec
 PNX = int(CFG.get("pnx", 31))
 PNY = int(CFG.get("pny", 31))
 FPS = int(CFG.get("udp_fps", CFG.get("fps", 30)))
-WAVE_FREQUENCY = float(CFG.get("wave_frequency", 1.0))
-WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", 1.0))
+
+DEFAULT_WAVE_FREQUENCY = 1.0
+DEFAULT_WAVE_AMPLITUDE = 1.0
+
+WAVE_FREQUENCY = float(CFG.get("wave_frequency", DEFAULT_WAVE_FREQUENCY))
+WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", DEFAULT_WAVE_AMPLITUDE))
 
 print("---- fake_mcu_udp.py ----")
 print("Config path:", str(CFG_PATH) if CFG_PATH else "(not found; using defaults)")

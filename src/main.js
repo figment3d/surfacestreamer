@@ -1085,6 +1085,11 @@ function createSitlPanel() {
         <input id="hardwareMode" type="radio" name="systemMode" value="hardware">
         Hardware
       </label>
+
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button id="saveStateButton" type="button">Save</button>
+        <button id="restoreStateButton" type="button">Restore</button>
+      </div>      
     </div>
 
     <div>
@@ -1147,9 +1152,15 @@ function createSitlPanel() {
   `;
 
   document.body.appendChild(panel);
+  
+  const saveStateButton = document.getElementById("saveStateButton");
+  const restoreStateButton = document.getElementById("restoreStateButton");
 
   sitlModeRadio = document.getElementById("sitlMode");
+  sitlModeRadio.checked = systemMode === "sitl";
+
   hardwareModeRadio = document.getElementById("hardwareMode");
+  hardwareModeRadio.checked = systemMode === "hardware";
 
   udpCheckbox = document.getElementById("udpEnabled");
   udpStatus = document.getElementById("udpStatus");
@@ -1178,9 +1189,22 @@ function createSitlPanel() {
 
   updateSpiCursor();
 
+  saveStateButton.addEventListener("click", () => {
+    saveAllState();
+    console.log("STATE SAVED");
+  });
+
+  restoreStateButton.addEventListener("click", () => {
+    clearState();
+
+    console.log("STATE CLEARED (refresh to use config defaults)");
+    location.reload();
+  });
+
   sitlModeRadio.addEventListener("change", () => {
     if (sitlModeRadio.checked) {
       systemMode = "sitl";
+      saveState({ systemMode });
       refreshAllSystemStatus();
     }
   });
@@ -1188,6 +1212,7 @@ function createSitlPanel() {
   hardwareModeRadio.addEventListener("change", () => {
     if (hardwareModeRadio.checked) {
       systemMode = "hardware";
+      saveState({ systemMode });
       refreshAllSystemStatus();
     }
   });
@@ -1266,7 +1291,8 @@ function connect() {
     if (cfg) {
       if (typeof cfg.noise_sigma === "number") sendCfgUpdate({ noise_sigma: cfg.noise_sigma });
       if (typeof cfg.ema_alpha === "number")  sendCfgUpdate({ ema_alpha: cfg.ema_alpha });
-
+      if (typeof cfg.wave_frequency === "number") sendCfgUpdate({ wave_frequency: cfg.wave_frequency });
+      if (typeof cfg.wave_amplitude === "number") sendCfgUpdate({ wave_amplitude: cfg.wave_amplitude });
       sendCfgUpdate({ udp_enabled: udpEnabled });
     }
   };
@@ -1548,22 +1574,36 @@ window.addEventListener("keydown", (e) => {
 
   // Save now / clear saved state (useful during experimentation)
   else if (e.key === "s" || e.key === "S") {
-    // force-save all current values
-    saveState({
-      TESS, heightScale, colorMode, craterEnable,
-      craterCenterXZ, craterRadius, craterDepth, craterFeather,
-      yaw, pitch, radius,
-      noise_sigma: (cfg && typeof cfg.noise_sigma === "number") ? cfg.noise_sigma : undefined,
-      ema_alpha: (cfg && typeof cfg.ema_alpha === "number") ? cfg.ema_alpha : undefined,
-      wave_frequency: (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : undefined,
-      wave_amplitude: (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : undefined,
-    });
+    saveAllState();
     console.log("STATE SAVED");
-  } else if (e.key === "Backspace") {
+  } 
+  
+  else if (e.key === "Backspace") {
     clearState();
     console.log("STATE CLEARED (refresh to use config defaults)");
   }
 });
+
+function saveAllState() {
+  saveState({
+    TESS, heightScale, colorMode, craterEnable,
+    craterCenterXZ, craterRadius, craterDepth, craterFeather,
+    yaw, pitch, radius,
+
+    systemMode,
+    uartEnabled,
+    udpEnabled,
+    i2cEnabled,
+    spiEnabled,
+    tcpEnabled,
+    canEnabled,
+
+    noise_sigma: (cfg && typeof cfg.noise_sigma === "number") ? cfg.noise_sigma : undefined,
+    ema_alpha: (cfg && typeof cfg.ema_alpha === "number") ? cfg.ema_alpha : undefined,
+    wave_frequency: (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : undefined,
+    wave_amplitude: (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : undefined,
+  });
+}
 
 // ======================================================
 // GL state + render
@@ -1573,7 +1613,7 @@ gl.disable(gl.CULL_FACE);
 gl.clearColor(0.06, 0.08, 0.14, 1.0);
 
 function render() {
-  resize();
+  resize();  
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   const aspect = canvas.width / Math.max(1, canvas.height);
@@ -1643,6 +1683,22 @@ function render() {
   requestAnimationFrame(render);
 }
 
+function applyConfigDefaults() {
+  if (typeof cfg.heightScale === "number") heightScale = cfg.heightScale;
+  heightScale = Math.max(0.02, Math.min(20.0, heightScale));
+
+  if (typeof cfg.tess === "number") {
+    TESS = Math.max(8, Math.min(256, cfg.tess | 0));
+    uploadPatchMesh(TESS);
+  }
+
+  if (typeof cfg.craterEnable === "boolean") craterEnable = cfg.craterEnable;
+  if (typeof cfg.craterRadius === "number") craterRadius = cfg.craterRadius;
+  if (typeof cfg.craterDepth === "number") craterDepth = cfg.craterDepth;
+  if (typeof cfg.craterCenterX === "number") craterCenterXZ[0] = cfg.craterCenterX;
+  if (typeof cfg.craterCenterZ === "number") craterCenterXZ[1] = cfg.craterCenterZ;
+}
+
 // ======================================================
 // Boot: config defaults → saved overrides → connect → render
 // ======================================================
@@ -1651,24 +1707,23 @@ async function boot() {
   window.cfg = cfg;
   
   udpEnabled = cfg.data_source === "udp";
+
+  const st = loadState();
+
+  if (typeof st.systemMode === "string") systemMode = st.systemMode;
+  if (typeof st.uartEnabled === "boolean") uartEnabled = st.uartEnabled;
+  if (typeof st.udpEnabled === "boolean") udpEnabled = st.udpEnabled;
+  if (typeof st.i2cEnabled === "boolean") i2cEnabled = st.i2cEnabled;
+  if (typeof st.spiEnabled === "boolean") spiEnabled = st.spiEnabled;
+  if (typeof st.tcpEnabled === "boolean") tcpEnabled = st.tcpEnabled;
+  if (typeof st.canEnabled === "boolean") canEnabled = st.canEnabled;
+
   createSitlPanel();
 
   // Apply config defaults (baseline)
-  if (typeof cfg.heightScale === "number") heightScale = cfg.heightScale;
-  heightScale = Math.max(0.02, Math.min(20.0, heightScale));
-  
-  if (typeof cfg.tess === "number") {
-    TESS = Math.max(8, Math.min(256, cfg.tess | 0));
-    uploadPatchMesh(TESS);
-  }
-  if (typeof cfg.craterEnable === "boolean") craterEnable = cfg.craterEnable;
-  if (typeof cfg.craterRadius === "number") craterRadius = cfg.craterRadius;
-  if (typeof cfg.craterDepth  === "number") craterDepth  = cfg.craterDepth;
-  if (typeof cfg.craterCenterX === "number") craterCenterXZ[0] = cfg.craterCenterX;
-  if (typeof cfg.craterCenterZ === "number") craterCenterXZ[1] = cfg.craterCenterZ;
+  applyConfigDefaults();
 
-  // Apply SAVED overrides (authoritative)
-  const st = loadState();
+  // Apply SAVED overrides (authoritative) 
   if (typeof st.TESS === "number") {
     TESS = Math.max(8, Math.min(256, st.TESS | 0));
     uploadPatchMesh(TESS);
