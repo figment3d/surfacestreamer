@@ -39,18 +39,93 @@ const STATE_KEY = "bicubic_viewer_state_v2";
 function safeParseJSON(s) {
   try { return JSON.parse(s); } catch { return null; }
 }
+
+function setFrequency(value) {
+  if (cfg) {
+    cfg.wave_frequency = value;
+    sendCfgUpdate({ wave_frequency: value });
+  }
+}
+
+function setAmplitude(value) {
+  if (cfg) {
+    cfg.wave_amplitude = value;
+    sendCfgUpdate({ wave_amplitude: value });
+  }
+}
+
 function loadState() {
   const s = localStorage.getItem(STATE_KEY);
   const j = s ? safeParseJSON(s) : null;
   return (j && typeof j === "object") ? j : {};
 }
+
 function saveState(partial) {
   const cur = loadState();
   const next = { ...cur, ...partial };
   localStorage.setItem(STATE_KEY, JSON.stringify(next));
 }
-function clearState() {
-  localStorage.removeItem(STATE_KEY);
+
+function resetState() {
+  applyState(DEFAULT_STATE);
+}
+
+function loadSavedState() {
+  applyState(loadState());
+}
+
+function applyState(st) {
+
+  applySavedInterfaceState(st);
+
+  if (typeof st.TESS === "number") {
+    TESS = Math.max(8, Math.min(256, st.TESS | 0));
+    uploadPatchMesh(TESS);
+  }
+
+  if (typeof st.heightScale === "number") heightScale = st.heightScale;
+  if (typeof st.colorMode === "number") colorMode = st.colorMode ? 1 : 0;
+  if (typeof st.craterEnable === "boolean") craterEnable = st.craterEnable;
+
+  if (Array.isArray(st.craterCenterXZ) && st.craterCenterXZ.length === 2)
+    craterCenterXZ = st.craterCenterXZ;
+
+  if (typeof st.craterRadius === "number") craterRadius = st.craterRadius;
+  if (typeof st.craterDepth === "number") craterDepth = st.craterDepth;
+  if (typeof st.craterFeather === "number") craterFeather = st.craterFeather;
+
+  if (typeof st.yaw === "number") yaw = st.yaw;
+  if (typeof st.pitch === "number") pitch = st.pitch;
+  if (typeof st.radius === "number") radius = st.radius;
+
+  if (typeof st.noise_sigma === "number") {
+    cfg.noise_sigma = st.noise_sigma;
+    sendCfgUpdate({ noise_sigma: st.noise_sigma });
+  }
+
+  if (typeof st.ema_alpha === "number") {
+    cfg.ema_alpha = st.ema_alpha;
+    sendCfgUpdate({ ema_alpha: st.ema_alpha });
+  }
+
+  if (typeof st.wave_frequency === "number")
+    setFrequency(st.wave_frequency);
+
+  if (typeof st.wave_amplitude === "number")
+    setAmplitude(st.wave_amplitude);
+
+  sitlModeRadio.checked = systemMode === "sitl";
+  hardwareModeRadio.checked = systemMode === "hardware";
+
+  uartCheckbox.checked = uartEnabled;
+  udpCheckbox.checked = udpEnabled;
+  i2cCheckbox.checked = i2cEnabled;
+  spiCheckbox.checked = spiEnabled;
+  tcpCheckbox.checked = tcpEnabled;
+  canCheckbox.checked = canEnabled;
+
+  updateSpiCursor();
+  refreshAllSystemStatus();
 }
 
 // ======================================================
@@ -608,6 +683,8 @@ function getViewParams() {
 // Globals
 // WebSocket + live cfg (server-side knobs live here)
 // ======================================================
+const DEFAULT_WAVE_FREQUENCY = 1.0;
+const DEFAULT_WAVE_AMPLITUDE = 1.0;
 let ws = null;
 let cfg = null;
 let systemMode = "sitl";   // "sitl" or "hardware"
@@ -663,6 +740,35 @@ let canCheckbox = null;
 let canStatus = null;
 let uartCheckbox = null;
 let uartStatus = null;
+
+const DEFAULT_STATE = {
+  systemMode: "sitl",
+
+  uartEnabled: true,
+  udpEnabled: true,
+  i2cEnabled: true,
+  spiEnabled: true,
+  tcpEnabled: true,
+  canEnabled: true,
+
+  TESS: 32,
+  heightScale: 2.0,
+  colorMode: 1,
+  craterEnable: false,
+  craterCenterXZ: [0.0, 0.0],
+  craterRadius: 0.35,
+  craterDepth: 0.20,
+  craterFeather: 0.035,
+
+  yaw: 0.7,
+  pitch: 0.55,
+  radius: 3.2,
+
+  noise_sigma: 0.0,
+  ema_alpha: 0.25,
+  wave_frequency: DEFAULT_WAVE_FREQUENCY,
+  wave_amplitude: DEFAULT_WAVE_AMPLITUDE,
+};
 
 function getInterfaceStatus(enabled, detected, disabledText, monitorWithCan = true) {
   let statusText = "";
@@ -1088,7 +1194,8 @@ function createSitlPanel() {
 
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button id="saveStateButton" type="button">Save</button>
-        <button id="restoreStateButton" type="button">Restore</button>
+        <button id="loadStateButton" type="button">Load</button>
+        <button id="restoreStateButton" type="button">Restore</button>        
       </div>      
     </div>
 
@@ -1154,6 +1261,7 @@ function createSitlPanel() {
   document.body.appendChild(panel);
   
   const saveStateButton = document.getElementById("saveStateButton");
+  const loadStateButton = document.getElementById("loadStateButton");
   const restoreStateButton = document.getElementById("restoreStateButton");
 
   sitlModeRadio = document.getElementById("sitlMode");
@@ -1194,17 +1302,19 @@ function createSitlPanel() {
     console.log("STATE SAVED");
   });
 
-  restoreStateButton.addEventListener("click", () => {
-    clearState();
+  loadStateButton.addEventListener("click", () => {
+    loadSavedState();
+    console.log("STATE LOADED");
+  });
 
-    console.log("STATE CLEARED (refresh to use config defaults)");
-    location.reload();
+  restoreStateButton.addEventListener("click", () => {
+    resetState();
+    console.log("DEFAULT STATE RESTORED");
   });
 
   sitlModeRadio.addEventListener("change", () => {
     if (sitlModeRadio.checked) {
-      systemMode = "sitl";
-      saveState({ systemMode });
+      systemMode = "sitl"; 
       refreshAllSystemStatus();
     }
   });
@@ -1212,7 +1322,6 @@ function createSitlPanel() {
   hardwareModeRadio.addEventListener("change", () => {
     if (hardwareModeRadio.checked) {
       systemMode = "hardware";
-      saveState({ systemMode });
       refreshAllSystemStatus();
     }
   });
@@ -1458,41 +1567,34 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "BracketLeft") {
     TESS = Math.max(8, Math.floor(TESS / 2));
     uploadPatchMesh(TESS);
-    saveState({ TESS });
   } else if (e.code === "BracketRight") {
     TESS = Math.min(256, TESS * 2);
     uploadPatchMesh(TESS);
-    saveState({ TESS });
   }
 
   // Curvature (heightScale)
   else if (e.key === "-" || e.key === "_") {
     heightScale *= 0.8;
-    saveState({ heightScale });
     console.log("heightScale:", heightScale);
   } else if (e.key === "=" || e.key === "+") {
-    heightScale *= 1.25;
-    saveState({ heightScale });
+    heightScale *= 1.25;    
     console.log("heightScale:", heightScale);
   }
 
   // Camera reset
   else if (e.key === "0") {
     yaw = 0.7; pitch = 0.55; radius = 3.2;
-    saveState({ yaw, pitch, radius });
   }
 
   // Color toggle
   else if (e.key === "c" || e.key === "C") {
     colorMode = 1 - colorMode;
-    saveState({ colorMode });
     console.log("colorMode:", colorMode ? "RGB cube" : "gray");
   }
 
   // Crater toggle
   else if (e.key === "h" || e.key === "H") {
     craterEnable = !craterEnable;
-    saveState({ craterEnable });
     console.log("crater:", craterEnable ? "ON" : "OFF");
   }
 
@@ -1501,57 +1603,43 @@ window.addEventListener("keydown", (e) => {
     const cur = (cfg && typeof cfg.noise_sigma === "number") ? cfg.noise_sigma : 0.0;
     const next = Math.max(0.0, cur - 0.0002);
     if (cfg) cfg.noise_sigma = next;
-    sendCfgUpdate({ noise_sigma: next });
-    saveState({ noise_sigma: next });
+    sendCfgUpdate({ noise_sigma: next });    
     console.log("noise_sigma:", next.toFixed(4));
   } else if (e.key === "m" || e.key === "M") {
     const cur = (cfg && typeof cfg.noise_sigma === "number") ? cfg.noise_sigma : 0.0;
     const next = cur + 0.0002;
     if (cfg) cfg.noise_sigma = next;
-    sendCfgUpdate({ noise_sigma: next });
-    saveState({ noise_sigma: next });
+    sendCfgUpdate({ noise_sigma: next });    
     console.log("noise_sigma:", next.toFixed(4));
   }
   // Wave frequency (server-side)
   else if (e.key === "d" || e.key === "D") {
-    const cur = (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : 1.0;
+    const cur = (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : DEFAULT_WAVE_FREQUENCY;
     const next = Math.max(0.1, cur / 1.1);
 
-    if (cfg) cfg.wave_frequency = next;
-    sendCfgUpdate({ wave_frequency: next });
-    saveState({ wave_frequency: next });
-
+    setFrequency(next);  
     console.log("wave_frequency:", next.toFixed(2));
 
   } else if (e.key === "f" || e.key === "F") {
-    const cur = (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : 1.0;
+    const cur = (cfg && typeof cfg.wave_frequency === "number") ? cfg.wave_frequency : DEFAULT_WAVE_FREQUENCY;
     const next = cur * 1.1;
 
-    if (cfg) cfg.wave_frequency = next;
-    sendCfgUpdate({ wave_frequency: next });
-    saveState({ wave_frequency: next });
-
+    setFrequency(next);      
     console.log("wave_frequency:", next.toFixed(2));
   }
   // Wave amplitude (server-side)
   else if (e.key === "z" || e.key === "Z") {
-    const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : 1.0;
+    const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : DEFAULT_WAVE_AMPLITUDE;
     const next = Math.max(0.0, cur / 1.1);
 
-    if (cfg) cfg.wave_amplitude = next;
-    sendCfgUpdate({ wave_amplitude: next });
-    saveState({ wave_amplitude: next });
-
+    setAmplitude(next);
     console.log("wave_amplitude:", next.toFixed(2));
 
   } else if (e.key === "a" || e.key === "A") {
-    const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : 1.0;
+    const cur = (cfg && typeof cfg.wave_amplitude === "number") ? cfg.wave_amplitude : DEFAULT_WAVE_AMPLITUDE;
     const next = cur * 1.1;
 
-    if (cfg) cfg.wave_amplitude = next;
-    sendCfgUpdate({ wave_amplitude: next });
-    saveState({ wave_amplitude: next });
-
+    setAmplitude(next);
     console.log("wave_amplitude:", next.toFixed(2));
   }
 
@@ -1560,27 +1648,14 @@ window.addEventListener("keydown", (e) => {
     const cur = (cfg && typeof cfg.ema_alpha === "number") ? cfg.ema_alpha : 0.25;
     const next = Math.max(0.0, Math.min(1.0, cur - 0.02));
     if (cfg) cfg.ema_alpha = next;
-    sendCfgUpdate({ ema_alpha: next });
-    saveState({ ema_alpha: next });
+    sendCfgUpdate({ ema_alpha: next });    
     console.log("ema_alpha:", next.toFixed(2));
   } else if (e.key === "r" || e.key === "R") {
     const cur = (cfg && typeof cfg.ema_alpha === "number") ? cfg.ema_alpha : 0.25;
     const next = Math.max(0.0, Math.min(1.0, cur + 0.02));
     if (cfg) cfg.ema_alpha = next;
-    sendCfgUpdate({ ema_alpha: next });
-    saveState({ ema_alpha: next });
+    sendCfgUpdate({ ema_alpha: next });    
     console.log("ema_alpha:", next.toFixed(2));
-  }
-
-  // Save now / clear saved state (useful during experimentation)
-  else if (e.key === "s" || e.key === "S") {
-    saveAllState();
-    console.log("STATE SAVED");
-  } 
-  
-  else if (e.key === "Backspace") {
-    clearState();
-    console.log("STATE CLEARED (refresh to use config defaults)");
   }
 });
 
@@ -1699,6 +1774,16 @@ function applyConfigDefaults() {
   if (typeof cfg.craterCenterZ === "number") craterCenterXZ[1] = cfg.craterCenterZ;
 }
 
+function applySavedInterfaceState(st) {
+  if (typeof st.systemMode === "string") systemMode = st.systemMode;
+  if (typeof st.uartEnabled === "boolean") uartEnabled = st.uartEnabled;
+  if (typeof st.udpEnabled === "boolean") udpEnabled = st.udpEnabled;
+  if (typeof st.i2cEnabled === "boolean") i2cEnabled = st.i2cEnabled;
+  if (typeof st.spiEnabled === "boolean") spiEnabled = st.spiEnabled;
+  if (typeof st.tcpEnabled === "boolean") tcpEnabled = st.tcpEnabled;
+  if (typeof st.canEnabled === "boolean") canEnabled = st.canEnabled;
+}
+
 // ======================================================
 // Boot: config defaults → saved overrides → connect → render
 // ======================================================
@@ -1710,13 +1795,7 @@ async function boot() {
 
   const st = loadState();
 
-  if (typeof st.systemMode === "string") systemMode = st.systemMode;
-  if (typeof st.uartEnabled === "boolean") uartEnabled = st.uartEnabled;
-  if (typeof st.udpEnabled === "boolean") udpEnabled = st.udpEnabled;
-  if (typeof st.i2cEnabled === "boolean") i2cEnabled = st.i2cEnabled;
-  if (typeof st.spiEnabled === "boolean") spiEnabled = st.spiEnabled;
-  if (typeof st.tcpEnabled === "boolean") tcpEnabled = st.tcpEnabled;
-  if (typeof st.canEnabled === "boolean") canEnabled = st.canEnabled;
+  applySavedInterfaceState(st);
 
   createSitlPanel();
 
@@ -1735,6 +1814,7 @@ async function boot() {
   if (Array.isArray(st.craterCenterXZ) && st.craterCenterXZ.length === 2) craterCenterXZ = st.craterCenterXZ;
   if (typeof st.craterRadius === "number") craterRadius = st.craterRadius;
   if (typeof st.craterDepth  === "number") craterDepth  = st.craterDepth;
+  if (typeof st.craterFeather === "number") craterFeather = st.craterFeather;
 
   if (typeof st.yaw === "number") yaw = st.yaw;
   if (typeof st.pitch === "number") pitch = st.pitch;
@@ -1744,8 +1824,12 @@ async function boot() {
   if (typeof st.noise_sigma === "number") cfg.noise_sigma = st.noise_sigma;
   if (typeof st.ema_alpha === "number") cfg.ema_alpha = st.ema_alpha;
 
+  // Saved wave state
+  if (typeof st.wave_frequency === "number") cfg.wave_frequency = st.wave_frequency;
+  if (typeof st.wave_amplitude === "number") cfg.wave_amplitude = st.wave_amplitude;
+
   // SPI availability controls the IMU/orientation color visualization
-  colorMode = tcpEnabled ? 1 : 0;
+  if (typeof st.colorMode !== "number") colorMode = tcpEnabled ? 1 : 0;
 
   console.log("config defaults:", cfg);
   console.log("restored state:", st);
