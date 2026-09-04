@@ -635,6 +635,8 @@ let lastR = 0.5;
 let lastG = 0.5;
 let lastB = 0.5;
 
+let showGyroValues = false;
+
 let spiControlWasActive = false;
 let spiBaseAccX = 0;
 let spiBaseAccY = 0;
@@ -831,8 +833,17 @@ function updateSpiStatus() {
       "SENSOR BUS DISABLED"
     );
 
+    const accelText =
+      systemMode === "hardware" &&
+      spiDetected &&
+      accX !== null &&
+      accY !== null &&
+      accZ !== null
+        ? ` — ACCEL: ${roundTo(accX, 100)} ${roundTo(accY, 100)} ${roundTo(accZ, 100)}`
+        : "";
+
     spiCheckbox.parentElement.lastChild.textContent =
-      ` SPI IMU (${statusText})`;
+      ` SPI IMU (${statusText})${accelText}`;
 
     spiStatus.innerHTML =
       getModeDetails("spi") + "<br>";
@@ -850,24 +861,19 @@ function updateSpiStatus() {
     }
 
     if (
+      showGyroValues &&
       systemMode === "hardware" &&
       spiDetected &&
-      accX !== null &&
-      accY !== null &&
-      accZ !== null &&
       gyrX !== null &&
       gyrY !== null &&
       gyrZ !== null
     ) {
-        spiStatus.innerHTML +=
-          `<br><br><b>ACCEL:</b> X ${roundTo(accX, 100)} &nbsp; Y ${roundTo(accY, 100)} &nbsp; Z ${roundTo(accZ, 100)}`;
+      const gx = gyrX;
+      const gy = gyrY;
+      const gz = gyrZ;
 
-        const gx = gyrX; // Math.abs(gyrX) < 20 ? 0 : roundTo(gyrX, 10);
-        const gy = gyrY; // Math.abs(gyrY) < 20 ? 0 : roundTo(gyrY, 10);
-        const gz = gyrZ; // Math.abs(gyrZ) < 20 ? 0 : roundTo(gyrZ, 10);
-
-        spiStatus.innerHTML +=
-          `<br><b>GYRO:</b> X ${gx} &nbsp; Y ${gy} &nbsp; Z ${gz}`;
+      spiStatus.innerHTML +=
+        `<br><br><b>GYRO:</b> ${gx} &nbsp; ${gy} &nbsp; ${gz}`;
     }
   }
 }
