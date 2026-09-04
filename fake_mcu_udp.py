@@ -46,6 +46,8 @@ PORT = int(CFG.get("udp_port", 9999))         # UDP receiver port (we'll add rec
 PNX = int(CFG.get("pnx", 31))
 PNY = int(CFG.get("pny", 31))
 FPS = int(CFG.get("udp_fps", CFG.get("fps", 30)))
+WAVE_FREQUENCY = float(CFG.get("wave_frequency", 1.0))
+WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", 1.0))
 
 print("---- fake_mcu_udp.py ----")
 print("Config path:", str(CFG_PATH) if CFG_PATH else "(not found; using defaults)")
@@ -66,7 +68,12 @@ def make_ctrl16_frame(pnx: int, pny: int, t: float) -> np.ndarray:
     n = pnx * pny * 16
     # A gentle wave across the flattened index so it animates
     i = np.arange(n, dtype=np.float32)
-    y = 0.02 * np.sin(0.01 * i + 1.5 * t) + 0.01 * np.cos(0.013 * i + 1.2 * t)
+    
+    y = WAVE_AMPLITUDE * (
+        0.02 * np.sin((0.01 * WAVE_FREQUENCY) * i + 1.5 * t)
+        + 0.01 * np.cos((0.013 * WAVE_FREQUENCY) * i + 1.2 * t)
+    )
+    
     return y.astype(np.float32)
 
 def pack_payload(pnx: int, pny: int, ctrl16: np.ndarray) -> bytes:
@@ -82,6 +89,9 @@ def pack_payload(pnx: int, pny: int, ctrl16: np.ndarray) -> bytes:
 # Main loop
 # ============================================================
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+control_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+control_sock.bind(("127.0.0.1", 9998))
+control_sock.setblocking(False)
 
 period = 1.0 / max(1, FPS)
 next_t = time.perf_counter()
@@ -94,6 +104,21 @@ while True:
         time.sleep(next_t - now)
         now = time.perf_counter()
     next_t += period
+
+    try:
+        data, _ = control_sock.recvfrom(1024)
+        cmd = json.loads(data.decode("utf-8"))
+
+        if "wave_frequency" in cmd:
+            WAVE_FREQUENCY = float(cmd["wave_frequency"])
+            print(f"[CONTROL] wave_frequency={WAVE_FREQUENCY:.2f}")
+
+        if "wave_amplitude" in cmd:
+            WAVE_AMPLITUDE = float(cmd["wave_amplitude"])
+            print(f"[CONTROL] wave_amplitude={WAVE_AMPLITUDE:.2f}")
+
+    except BlockingIOError:
+        pass
 
     ctrl16 = make_ctrl16_frame(PNX, PNY, now)
     payload = pack_payload(PNX, PNY, ctrl16)

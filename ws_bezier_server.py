@@ -202,6 +202,9 @@ def detect_hardware() -> tuple[bool, bool, int | None]:
 _latest_udp_frame: bytes | None = None
 
 
+FAKE_MCU_CONTROL_PORT = 9998
+fake_mcu_control_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
 async def udp_receiver():
     """
     Receives full payloads over UDP:
@@ -608,10 +611,20 @@ async def handler(ws):
                     WAVE_FREQUENCY = max(0.1, float(j["wave_frequency"]))
                     print(f"[LIVE] wave_frequency={WAVE_FREQUENCY:.2f}")
 
+                    fake_mcu_control_sock.sendto(
+                        json.dumps({"wave_frequency": WAVE_FREQUENCY}).encode("utf-8"),
+                        ("127.0.0.1", FAKE_MCU_CONTROL_PORT)
+                    )
+
                 if "wave_amplitude" in j:
                     WAVE_AMPLITUDE = max(0.0, float(j["wave_amplitude"]))
                     print(f"[LIVE] wave_amplitude={WAVE_AMPLITUDE:.2f}")
 
+                    fake_mcu_control_sock.sendto(
+                        json.dumps({"wave_amplitude": WAVE_AMPLITUDE}).encode("utf-8"),
+                        ("127.0.0.1", FAKE_MCU_CONTROL_PORT)
+                    )
+                    
                 if "ema_alpha" in j:
                     EMA_ALPHA = max(0.0, min(1.0, float(j["ema_alpha"])))
                     _prev_base = None  # reset EMA state so change is immediate

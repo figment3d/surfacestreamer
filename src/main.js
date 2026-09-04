@@ -1309,7 +1309,7 @@ function connect() {
             gyrZ != null 
           ) {
             pitch = Math.max(-1.45, Math.min(1.45, accX * 0.0003));
-            yaw = accY * 0.0003;
+            yaw = -accY * 0.0003;
 
             const gyroScale = 10000;
 
