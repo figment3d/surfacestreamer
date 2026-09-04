@@ -107,6 +107,9 @@ if BASIS != "bezier":
 NOISE_SIGMA = float(CFG.get("noise_sigma", 0.005))  # 0 disables noise
 EMA_ALPHA = float(CFG.get("ema_alpha", 0.25))      # 0 disables EMA
 
+DEFAULT_WAVE_FREQUENCY = 1.0
+DEFAULT_WAVE_AMPLITUDE = 1.0
+
 WAVE_FREQUENCY = float(CFG.get("wave_frequency", DEFAULT_WAVE_FREQUENCY))
 WAVE_AMPLITUDE = float(CFG.get("wave_amplitude", DEFAULT_WAVE_AMPLITUDE))
 
