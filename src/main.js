@@ -715,6 +715,7 @@ let canSimulated = false;
 let sensorScale = 1.0;
 
 let i2cRangeMm = null;
+let ethernetIp = null;
 
 let accX = null;
 let accY = null;
@@ -851,7 +852,7 @@ function getModeDetails(interfaceName) {
     case "udp":
       return (
         "Fast network channel for continuously streaming live data<br>" +
-        "<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (via Ethernet / IP)"
+        `<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (IP ${ethernetIp ?? "unknown"})`
       );
 
     case "i2c":
@@ -869,7 +870,7 @@ function getModeDetails(interfaceName) {
     case "tcp":
       return (
         "Reliable network channel for commands and settings<br>" +
-        "<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (via Ethernet / IP)"
+        `<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (IP ${ethernetIp ?? "unknown"})`
       );
 
     case "can":
@@ -1450,7 +1451,12 @@ function connect() {
             (typeof msg.i2cRangeMm === "number")
               ? msg.i2cRangeMm
               : null;
-
+              
+          ethernetIp =
+            (typeof msg.ethernetIp === "string")
+              ? msg.ethernetIp
+              : null;          
+              
           accX = (typeof msg.accX === "number") ? msg.accX : null;
           accY = (typeof msg.accY === "number") ? msg.accY : null;
           accZ = (typeof msg.accZ === "number") ? msg.accZ : null;
@@ -1510,8 +1516,9 @@ function connect() {
           }
           
           console.log("UART detected:", uartDetected);
-          console.log("I2C detected:", i2cDetected);
-          console.log("SPI detected:", spiDetected);
+          console.log("I2C detected: ", i2cDetected);
+          console.log("SPI detected: ", spiDetected);
+          console.log("Ethernet IP:  ", ethernetIp);
 
           updateUartStatus();
           updateI2cStatus();

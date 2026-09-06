@@ -398,7 +398,164 @@ def serial_command_matches(ser, command: str, expected_reply: str) -> bool:
     ).strip()
 
     return reply == expected_reply
-     
+
+def monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count):
+    i2c_detected = False
+    i2c_range_mm = None
+
+    ser.write(b"I2C_STATUS\r\n")
+    ser.flush()
+
+    i2c_reply = ser.readline().decode(
+        errors="replace"
+    ).strip()
+
+    if i2c_reply.startswith("I2C_READY"):
+        parts = i2c_reply.split()
+
+        if len(parts) >= 2:
+            try:
+                last_i2c_range_mm = int(parts[1])
+                i2c_fail_count = 0
+                i2c_detected = True
+                i2c_range_mm = last_i2c_range_mm
+            except ValueError:
+                i2c_fail_count += 1
+        else:
+            i2c_fail_count += 1
+    else:
+        i2c_fail_count += 1
+
+    if (
+        not i2c_detected
+        and i2c_fail_count < 3
+        and last_i2c_range_mm is not None
+    ):
+        i2c_detected = True
+        i2c_range_mm = last_i2c_range_mm
+
+    return (
+        i2c_detected,
+        i2c_range_mm,
+        last_i2c_range_mm,
+        i2c_fail_count,
+        i2c_reply
+    )
+
+def monitor_SPI(ser, last_spi_data, spi_fail_count):
+    spi_detected = False
+    acc_x = acc_y = acc_z = None
+    gyr_x = gyr_y = gyr_z = None
+
+    ser.write(b"SPI_STATUS\r\n")
+    ser.flush()
+
+    spi_reply = ser.readline().decode(
+        errors="replace"
+    ).strip()
+
+    if spi_reply == "SPI_CHIP_ID 0x24":
+        ser.write(b"SPI_DATA\r\n")
+        ser.flush()
+
+        spi_data_reply = ser.readline().decode(
+            errors="replace"
+        ).strip()
+
+        parts = spi_data_reply.split()
+
+        if (
+            len(parts) == 8
+            and parts[0] == "ACC"
+            and parts[4] == "GYR"
+        ):
+            try:
+                acc_x = int(parts[1])
+                acc_y = int(parts[2])
+                acc_z = int(parts[3])
+                gyr_x = int(parts[5])
+                gyr_y = int(parts[6])
+                gyr_z = int(parts[7])
+
+                last_spi_data = (
+                    acc_x, acc_y, acc_z,
+                    gyr_x, gyr_y, gyr_z
+                )
+
+                spi_fail_count = 0
+                spi_detected = True
+
+            except ValueError:
+                spi_fail_count += 1
+        else:
+            spi_fail_count += 1
+    else:
+        spi_fail_count += 1
+
+    # Don't declare SPI offline because of
+    # one or two missed/invalid responses.
+    if (
+        not spi_detected
+        and spi_fail_count < 3
+        and last_spi_data is not None
+    ):
+        spi_detected = True
+
+        (
+            acc_x, acc_y, acc_z,
+            gyr_x, gyr_y, gyr_z
+        ) = last_spi_data
+
+    return (
+        spi_detected,
+        acc_x, acc_y, acc_z,
+        gyr_x, gyr_y, gyr_z,
+        last_spi_data,
+        spi_fail_count,
+        spi_reply
+    )
+
+def monitor_ETH(ser, last_ethernet_ip, eth_fail_count):
+    ethernet_ip = None
+
+    ser.write(b"ETH_STATUS\r\n")
+    ser.flush()
+
+    eth_reply = ser.readline().decode(
+        errors="replace"
+    ).strip()
+
+    if (
+        eth_reply.startswith("ETH_IP ")
+        and eth_reply.endswith("LINK_UP")
+    ):
+        parts = eth_reply.split()
+
+        if len(parts) >= 2:
+            ethernet_ip = parts[1]
+            last_ethernet_ip = ethernet_ip
+            eth_fail_count = 0
+        else:
+            eth_fail_count += 1
+    else:
+        eth_fail_count += 1
+
+    # Don't declare Ethernet offline because of
+    # one or two missed/invalid responses.
+    if (
+        ethernet_ip is None
+        and eth_fail_count < 3
+        and last_ethernet_ip is not None
+    ):
+        ethernet_ip = last_ethernet_ip
+
+    return (
+        ethernet_ip,
+        last_ethernet_ip,
+        eth_fail_count,
+        eth_reply
+    )
+
 async def uart_monitor():
     global clients, uart_detected_state, i2c_detected_state, spi_detected_state
 
@@ -416,6 +573,12 @@ async def uart_monitor():
                 last_i2c_range_mm = None
                 i2c_fail_count = 0
 
+                last_spi_data = None
+                spi_fail_count = 0
+
+                last_ethernet_ip = None
+                eth_fail_count = 0
+
                 uart_detected = False
 
                 for _ in range(10):
@@ -430,84 +593,44 @@ async def uart_monitor():
                     await asyncio.sleep(0.05)
 
                 if not uart_detected:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.05)
                     continue 
  
                 while True:
                     i2c_detected = False
                     i2c_range_mm = None
                     spi_detected = False
+                    ethernet_ip = None
                     acc_x = acc_y = acc_z = None
                     gyr_x = gyr_y = gyr_z = None
 
-                    if uart_detected:
-                        ser.write(b"I2C_STATUS\r\n")
-                        ser.flush()
+                    if uart_detected:              
+                        # MONITOR SPI
+                        (
+                            spi_detected,
+                            acc_x, acc_y, acc_z,
+                            gyr_x, gyr_y, gyr_z,
+                            last_spi_data,
+                            spi_fail_count,
+                            spi_reply
+                        ) = monitor_SPI(ser, last_spi_data, spi_fail_count)
 
-                        i2c_reply = ser.readline().decode(
-                            errors="replace"
-                        ).strip()
+                        # MONITOR ETH
+                        (
+                            ethernet_ip,
+                            last_ethernet_ip,
+                            eth_fail_count,
+                            eth_reply
+                        ) = monitor_ETH(ser, last_ethernet_ip, eth_fail_count)
 
-                        if i2c_reply.startswith("I2C_READY"):
-                            parts = i2c_reply.split()
-
-                            if len(parts) >= 2:
-                                try:
-                                    last_i2c_range_mm = int(parts[1])
-                                    i2c_fail_count = 0
-                                    i2c_detected = True
-                                    i2c_range_mm = last_i2c_range_mm
-
-                                except ValueError:
-                                    i2c_fail_count += 1
-                            else:
-                                i2c_fail_count += 1
-
-                        else:
-                            i2c_fail_count += 1
-
-                        # Don't declare I2C offline because of
-                        # one or two missed/invalid responses.
-                        if (
-                            not i2c_detected
-                            and i2c_fail_count < 3
-                            and last_i2c_range_mm is not None
-                        ):
-                            i2c_detected = True
-                            i2c_range_mm = last_i2c_range_mm
-
-                        ser.write(b"SPI_STATUS\r\n")
-                        ser.flush()
-
-                        spi_reply = ser.readline().decode(
-                            errors="replace"
-                        ).strip()
-
-                        spi_detected = (spi_reply == "SPI_CHIP_ID 0x24")
-                        if spi_detected:
-                            ser.write(b"SPI_DATA\r\n")
-                            ser.flush()
-
-                            spi_data_reply = ser.readline().decode(
-                                errors="replace"
-                            ).strip()
-
-                            parts = spi_data_reply.split()
-
-                            if (
-                                len(parts) == 8
-                                and parts[0] == "ACC"
-                                and parts[4] == "GYR"
-                            ):
-                                try:
-                                    acc_x = int(parts[1])
-                                    acc_y = int(parts[2])
-                                    acc_z = int(parts[3])
-                                    gyr_x = int(parts[5])
-                                    gyr_y = int(parts[6])
-                                    gyr_z = int(parts[7])
-                                except ValueError:
-                                    pass
+                        # MONITOR I2C
+                        (
+                            i2c_detected,
+                            i2c_range_mm,
+                            last_i2c_range_mm,
+                            i2c_fail_count,
+                            i2c_reply
+                        ) = monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count)
 
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
@@ -517,14 +640,15 @@ async def uart_monitor():
                         "type": "hardware_status",
                         "uartDetected": uart_detected,
                         "i2cDetected": i2c_detected,
-                        "spiDetected": spi_detected,
                         "i2cRangeMm": i2c_range_mm,
+                        "ethernetIp": ethernet_ip,
+                        "spiDetected": spi_detected,
                         "accX": acc_x,
                         "accY": acc_y,
                         "accZ": acc_z,
                         "gyrX": gyr_x,
                         "gyrY": gyr_y,
-                        "gyrZ": gyr_z
+                        "gyrZ": gyr_z,
                     })
 
                     if clients:
