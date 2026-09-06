@@ -583,7 +583,7 @@ async def uart_monitor():
     global clients, uart_detected_state, i2c_detected_state, spi_detected_state
 
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    udp_sock.settimeout(0.1)
+    udp_sock.setblocking(False)
     udp_sock.bind(("0.0.0.0", 10000))
     
     while True:
