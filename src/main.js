@@ -1467,6 +1467,18 @@ function connect() {
           gyrZ = (typeof msg.gyrZ === "number") ? msg.gyrZ : null;
 
           if (
+            spiDetected &&
+            accX !== null &&
+            accY !== null &&
+            accZ !== null &&
+            gyrX !== null &&
+            gyrY !== null &&
+            gyrZ !== null
+          ) {
+            spiUpdateCount++;
+          }
+
+          if (
             systemMode === "hardware" &&
             spiEnabled &&
             spiDetected &&
@@ -1705,13 +1717,52 @@ function saveAllState() {
 }
 
 // ======================================================
-// GL state + render
+// GL state
 // ======================================================
 gl.enable(gl.DEPTH_TEST);
 gl.disable(gl.CULL_FACE);
 gl.clearColor(0.06, 0.08, 0.14, 1.0);
 
+// ======================================================
+// FPS diagnostic
+// ======================================================
+const fpsDisplay = document.createElement("div");
+
+let spiUpdateCount = 0;
+let spiUpdateHz = 0;
+let spiLastTime = performance.now();
+
+fpsDisplay.style.position = "fixed";
+fpsDisplay.style.top = "10px";
+fpsDisplay.style.right = "10px";
+fpsDisplay.style.zIndex = "9999";
+fpsDisplay.style.padding = "4px 8px";
+fpsDisplay.style.background = "rgba(0, 0, 0, 0.65)";
+fpsDisplay.style.color = "yellow";
+fpsDisplay.style.fontFamily = "monospace";
+fpsDisplay.style.fontSize = "18px";
+fpsDisplay.textContent = "-- FPS";
+
+document.body.appendChild(fpsDisplay);
+
+function updateFps() {
+  const now = performance.now();
+  const elapsed = now - spiLastTime;
+
+  if (elapsed >= 1000) {
+    spiUpdateHz = spiUpdateCount * 1000 / elapsed;
+
+    fpsDisplay.textContent =
+      `${spiUpdateHz.toFixed(1)} FPS`;
+
+    spiUpdateCount = 0;
+    spiLastTime = now;
+  }
+}
+
 function render() {
+  updateFps();
+
   resize();  
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
