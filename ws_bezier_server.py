@@ -496,7 +496,7 @@ def monitor_SPI(ser, last_spi_data, spi_fail_count):
     # one or two missed/invalid responses.
     if (
         not spi_detected
-        and spi_fail_count < 3
+        and spi_fail_count < 5
         and last_spi_data is not None
     ):
         spi_detected = True
@@ -556,9 +556,36 @@ def monitor_ETH(ser, last_ethernet_ip, eth_fail_count):
         eth_reply
     )
 
+def monitor_UDP(sock, last_udp_seen):
+    udp_ip = None
+
+    try:
+        data, addr = sock.recvfrom(1024)
+
+        if data == b"STM32_UDP_READY":
+            last_udp_seen = time.monotonic()
+            udp_ip = addr[0]
+
+    except TimeoutError:
+        pass
+
+    except OSError:
+        pass
+
+    udp_detected = (
+        last_udp_seen is not None
+        and time.monotonic() - last_udp_seen < 3.0
+    )
+
+    return udp_detected, udp_ip, last_udp_seen
+
 async def uart_monitor():
     global clients, uart_detected_state, i2c_detected_state, spi_detected_state
 
+    udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp_sock.settimeout(0.1)
+    udp_sock.bind(("0.0.0.0", 10000))
+    
     while True:
         try:
             with serial.Serial(
@@ -578,6 +605,8 @@ async def uart_monitor():
 
                 last_ethernet_ip = None
                 eth_fail_count = 0
+
+                last_udp_seen = None
 
                 uart_detected = False
 
@@ -600,7 +629,9 @@ async def uart_monitor():
                     i2c_detected = False
                     i2c_range_mm = None
                     spi_detected = False
+                    udp_detected = False
                     ethernet_ip = None
+                    
                     acc_x = acc_y = acc_z = None
                     gyr_x = gyr_y = gyr_z = None
 
@@ -623,6 +654,13 @@ async def uart_monitor():
                             eth_reply
                         ) = monitor_ETH(ser, last_ethernet_ip, eth_fail_count)
 
+                        # MONITOR UDP
+                        (
+                            udp_detected,
+                            udp_ip,
+                            last_udp_seen
+                        ) = monitor_UDP(udp_sock, last_udp_seen)
+
                         # MONITOR I2C
                         (
                             i2c_detected,
@@ -642,6 +680,7 @@ async def uart_monitor():
                         "i2cDetected": i2c_detected,
                         "i2cRangeMm": i2c_range_mm,
                         "ethernetIp": ethernet_ip,
+                        "udpDetected": udp_detected,
                         "spiDetected": spi_detected,
                         "accX": acc_x,
                         "accY": acc_y,

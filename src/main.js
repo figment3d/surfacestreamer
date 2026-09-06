@@ -957,7 +957,7 @@ function updateSpiStatus() {
       accX !== null &&
       accY !== null &&
       accZ !== null
-        ? ` — ACCEL: ${roundTo(accX, 100)} ${roundTo(accY, 100)} ${roundTo(accZ, 100)}`
+        ? ` — (${roundTo(accX, 100)}, ${roundTo(accY, 100)}, ${roundTo(accZ, 100)})`
         : "";
 
     spiCheckbox.parentElement.lastChild.textContent =
@@ -1446,7 +1446,8 @@ function connect() {
           uartDetected = !!msg.uartDetected;
           i2cDetected = !!msg.i2cDetected;
           spiDetected = !!msg.spiDetected;
-
+          udpDetected = !!msg.udpDetected;
+          
           i2cRangeMm =
             (typeof msg.i2cRangeMm === "number")
               ? msg.i2cRangeMm
@@ -1514,16 +1515,18 @@ function connect() {
           else {
             spiControlWasActive = false;
           }
-          
+
           console.log("UART detected:", uartDetected);
           console.log("I2C detected: ", i2cDetected);
           console.log("SPI detected: ", spiDetected);
+          console.log("UDP detected: ", udpDetected);
           console.log("Ethernet IP:  ", ethernetIp);
 
           updateUartStatus();
           updateI2cStatus();
           updateSpiStatus();
-          updateDiagnosticDisplay();
+          updateUdpStatus();
+          updateDiagnosticDisplay();                  
         }
       } catch (e) {
         console.log("Bad WS text message", e);
