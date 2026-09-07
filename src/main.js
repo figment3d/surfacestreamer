@@ -77,7 +77,12 @@ function loadSavedState() {
 function applyState(st) {
 
   applySavedInterfaceState(st);
+  
+  if (cfg) {
+    cfg.data_source = udpEnabled ? "udp" : "sim";
+  }
 
+  sendCfgUpdate({ udp_enabled: udpEnabled });
   if (typeof st.TESS === "number") {
     TESS = Math.max(8, Math.min(256, st.TESS | 0));
     uploadPatchMesh(TESS);
