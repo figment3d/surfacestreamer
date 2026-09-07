@@ -579,13 +579,55 @@ def monitor_UDP(sock, last_udp_seen):
 
     return udp_detected, udp_ip, last_udp_seen
 
+def monitor_TCP(server_sock, tcp_client, last_tcp_seen):
+    try:
+        if tcp_client is None:
+            try:
+                tcp_client, addr = server_sock.accept()
+                tcp_client.setblocking(False)
+                print(f"[CBIT] TCP connected from {addr[0]}")
+            except BlockingIOError:
+                pass
+
+        if tcp_client is not None:
+            try:
+                data = tcp_client.recv(1024)
+
+                if not data:
+                    tcp_client.close()
+                    tcp_client = None
+                    last_tcp_seen = None
+
+                elif b"STM32_TCP_READY" in data:
+                    last_tcp_seen = time.monotonic()
+
+            except BlockingIOError:
+                pass
+
+    except OSError:
+        tcp_client = None
+        last_tcp_seen = None
+
+    tcp_detected = (
+        tcp_client is not None
+        and last_tcp_seen is not None
+        and time.monotonic() - last_tcp_seen < 3.0
+    )
+
+    return tcp_detected, tcp_client, last_tcp_seen
+
 async def uart_monitor():
     global clients, uart_detected_state, i2c_detected_state, spi_detected_state
 
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.setblocking(False)
     udp_sock.bind(("0.0.0.0", 10000))
-    
+    tcp_server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    tcp_server_sock.setblocking(False)
+    tcp_server_sock.bind(("0.0.0.0", 10001))
+    tcp_server_sock.listen(1)
+
     while True:
         try:
             with serial.Serial(
@@ -607,6 +649,8 @@ async def uart_monitor():
                 eth_fail_count = 0
 
                 last_udp_seen = None
+                last_tcp_seen = None
+                tcp_client = None
 
                 uart_detected = False
 
@@ -630,6 +674,7 @@ async def uart_monitor():
                     i2c_range_mm = None
                     spi_detected = False
                     udp_detected = False
+                    tcp_detected = False
                     ethernet_ip = None
                     
                     acc_x = acc_y = acc_z = None
@@ -670,6 +715,13 @@ async def uart_monitor():
                             i2c_reply
                         ) = monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count)
 
+                        # MONITOR TCP
+                        (
+                            tcp_detected,
+                            tcp_client,
+                            last_tcp_seen
+                        ) = monitor_TCP(tcp_server_sock, tcp_client, last_tcp_seen)
+
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
                     spi_detected_state = spi_detected
@@ -681,6 +733,7 @@ async def uart_monitor():
                         "i2cRangeMm": i2c_range_mm,
                         "ethernetIp": ethernet_ip,
                         "udpDetected": udp_detected,
+                        "tcpDetected": tcp_detected,
                         "spiDetected": spi_detected,
                         "accX": acc_x,
                         "accY": acc_y,

@@ -1447,6 +1447,7 @@ function connect() {
           i2cDetected = !!msg.i2cDetected;
           spiDetected = !!msg.spiDetected;
           udpDetected = !!msg.udpDetected;
+          tcpDetected = !!msg.tcpDetected;
           
           i2cRangeMm =
             (typeof msg.i2cRangeMm === "number")
@@ -1532,12 +1533,14 @@ function connect() {
           console.log("I2C detected: ", i2cDetected);
           console.log("SPI detected: ", spiDetected);
           console.log("UDP detected: ", udpDetected);
+          console.log("TCP detected: ", tcpDetected);
           console.log("Ethernet IP:  ", ethernetIp);
 
           updateUartStatus();
           updateI2cStatus();
           updateSpiStatus();
           updateUdpStatus();
+          updateTcpStatus();
           updateDiagnosticDisplay();                  
         }
       } catch (e) {
