@@ -9,6 +9,8 @@ from pathlib import Path
 import numpy as np
 import websockets
 import serial
+import can
+import usb.core
 
 # ============================================================
 # PID (optional)
@@ -124,6 +126,9 @@ PID_ENABLED = bool(PID_CFG.get("enabled", False))
 PID_HZ = float(PID_CFG.get("hz", 50.0))
 PID_DT = 1.0 / max(1e-6, PID_HZ)
 PID_TARGET = float(PID_CFG.get("target_center_height", 0.0))
+
+# CAN
+can_stage_state: int = 0
 
 pid = PID(
     kp=PID_CFG.get("kp", 1.0),
@@ -616,8 +621,106 @@ def monitor_TCP(server_sock, tcp_client, last_tcp_seen):
 
     return tcp_detected, tcp_client, last_tcp_seen
 
+def is_CAN_adapter_present():
+    dev = usb.core.find(
+        idVendor=0x1D50,
+        idProduct=0x606F
+    )
+
+    return dev is not None
+
+def open_CAN():
+    bus = None
+
+    try:
+        bus = can.Bus(
+            interface="gs_usb",
+            channel=0,
+            bitrate=500000
+        )
+
+        print("[CBIT] Jhoinrch USB-CAN adapter ready")
+
+    except Exception as e:
+        print(f"[CBIT] CAN adapter unavailable: {e}")
+
+    return bus
+
+def monitor_CAN(ser, bus):
+    stage = 0
+
+    if bus is not None:
+        stage = 1
+        
+        try:
+            msg = can.Message(
+                arbitration_id=0x123,
+                data=[0x11, 0x22, 0x33, 0x44],
+                is_extended_id=False
+            )
+            
+            bus.send(msg)
+            end_time = time.monotonic() + 0.40
+            
+            while time.monotonic() < end_time and stage < 2:
+                line = ser.readline()
+
+                if line:                    
+                    text = line.decode(
+                        errors="replace"
+                    ).strip()
+                    
+
+                    if text.startswith("CAN_RX 0x123"):
+                        stage = 2
+
+        except Exception as e:
+            print(f"[CBIT] CAN test failed: {e}")
+
+    return stage
+
+def make_hardware_status_message(
+    uart_detected,
+    i2c_detected,
+    i2c_range_mm,
+    ethernet_ip,
+    udp_detected,
+    tcp_detected,
+    can_stage,
+    spi_detected,
+    acc_x,
+    acc_y,
+    acc_z,
+    gyr_x,
+    gyr_y,
+    gyr_z
+):
+    message = json.dumps({
+        "type": "hardware_status",
+        "uartDetected": uart_detected,
+        "i2cDetected": i2c_detected,
+        "i2cRangeMm": i2c_range_mm,
+        "ethernetIp": ethernet_ip,
+        "udpDetected": udp_detected,
+        "tcpDetected": tcp_detected,
+        "canStage": can_stage,
+        "spiDetected": spi_detected,
+        "accX": acc_x,
+        "accY": acc_y,
+        "accZ": acc_z,
+        "gyrX": gyr_x,
+        "gyrY": gyr_y,
+        "gyrZ": gyr_z,
+    })
+
+    return message
+
 async def uart_monitor():
-    global clients, uart_detected_state, i2c_detected_state, spi_detected_state
+    global clients
+    global uart_detected_state
+    global i2c_detected_state
+    global spi_detected_state
+    global can_stage_state
 
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.setblocking(False)
@@ -628,6 +731,13 @@ async def uart_monitor():
     tcp_server_sock.bind(("0.0.0.0", 10001))
     tcp_server_sock.listen(1)
 
+    can_bus = None
+    last_can_test = 0.0
+
+    ethernet_ip = None
+    udp_detected = False
+    tcp_detected = False
+    
     while True:
         try:
             with serial.Serial(
@@ -722,26 +832,62 @@ async def uart_monitor():
                             last_tcp_seen
                         ) = monitor_TCP(tcp_server_sock, tcp_client, last_tcp_seen)
 
+                        # MONITOR CAN
+
+                        now = time.monotonic()
+
+                        if now - last_can_test >= 1.0:
+                            last_can_test = now
+
+                            if not is_CAN_adapter_present():
+                                can_stage_state = 0
+
+                                if can_bus is not None:
+                                    try:
+                                        can_bus.shutdown()
+                                    except Exception:
+                                        pass
+
+                                    can_bus = None
+
+                            else:
+                                if can_bus is None:
+                                    can_bus = open_CAN()
+
+                                    if can_bus is not None:
+                                        can_stage_state = 1
+
+                                if can_bus is not None:
+                                    can_stage = monitor_CAN(
+                                        ser,
+                                        can_bus
+                                    )
+
+                                    if can_stage == 2:
+                                        can_stage_state = 2
+                                    else:
+                                        can_stage_state = 1
+
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
                     spi_detected_state = spi_detected
-
-                    message = json.dumps({
-                        "type": "hardware_status",
-                        "uartDetected": uart_detected,
-                        "i2cDetected": i2c_detected,
-                        "i2cRangeMm": i2c_range_mm,
-                        "ethernetIp": ethernet_ip,
-                        "udpDetected": udp_detected,
-                        "tcpDetected": tcp_detected,
-                        "spiDetected": spi_detected,
-                        "accX": acc_x,
-                        "accY": acc_y,
-                        "accZ": acc_z,
-                        "gyrX": gyr_x,
-                        "gyrY": gyr_y,
-                        "gyrZ": gyr_z,
-                    })
+                                        
+                    message = make_hardware_status_message(
+                        uart_detected,
+                        i2c_detected,
+                        i2c_range_mm,
+                        ethernet_ip,
+                        udp_detected,
+                        tcp_detected,
+                        can_stage_state,
+                        spi_detected,
+                        acc_x,
+                        acc_y,
+                        acc_z,
+                        gyr_x,
+                        gyr_y,
+                        gyr_z
+                    )
 
                     if clients:
                         await asyncio.gather(
@@ -759,20 +905,27 @@ async def uart_monitor():
             i2c_detected_state = False
             spi_detected_state = False
 
-            message = json.dumps({
-                "type": "hardware_status",
-                "uartDetected": False,
-                "i2cDetected": False,
-                "spiDetected": False,
-                "i2cRangeMm": None,
-                "accX": None,
-                "accY": None,
-                "accZ": None,
-                "gyrX": None,
-                "gyrY": None,
-                "gyrZ": None
-            })
-                        
+            if can_bus is not None:
+                can_stage_state = 1
+            else:
+                can_stage_state = 0
+
+            message = make_hardware_status_message(
+                False,                  # uart_detected
+                False,                  # i2c_detected
+                None,                   # i2c_range_mm
+                ethernet_ip,
+                udp_detected,
+                tcp_detected,
+                can_stage_state,
+                False,                  # spi_detected
+                None,                   # acc_x
+                None,                   # acc_y
+                None,                   # acc_z
+                None,                   # gyr_x
+                None,                   # gyr_y
+                None                    # gyr_z
+            )                        
             if clients:
                 await asyncio.gather(
                     *[

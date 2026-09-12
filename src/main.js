@@ -717,6 +717,7 @@ let spiSimulated = true;
 let tcpSimulated = false;
 let canSimulated = false;
 
+let canStage = 0;
 let sensorScale = 1.0;
 
 let i2cRangeMm = null;
@@ -802,6 +803,38 @@ function getInterfaceStatus(enabled, detected, simulated, disabledText, monitorW
   }
 
   return statusText;
+}
+
+function getCanHardwareDetails() {
+  if (systemMode !== "hardware" || canStage <= 0) {
+    return "";
+  }
+
+  let html = '<div style="margin-left:24px; margin-top:4px;">';
+
+  if (canStage >= 1) {
+    html += '<div>Jhoinrch USB-CAN Adapter — ONLINE</div>';
+  }
+
+  if (canStage >= 2) {
+    html += '<div>Waveshare CAN / STM32 — ONLINE</div>';
+  }
+
+  if (canStage >= 3) {
+    html += '<div>Raspberry Pi CAN HAT — ONLINE</div>';
+  }
+
+  if (canStage >= 4) {
+    html += '<div>Raspberry Pi CAN Node — ONLINE</div>';
+  }
+
+  if (canStage >= 5) {
+    html += '<div>Three-node CAN Bus — VERIFIED</div>';
+  }
+
+  html += '</div>';
+
+  return html;
 }
 
 function getModeDetails(interfaceName) {
@@ -1039,7 +1072,9 @@ function updateCanStatus() {
       ` CAN Subsystem Bus (${statusText})`;
 
     canStatus.innerHTML =
-      getModeDetails("can") + "<br>";
+      getModeDetails("can") +
+      getCanHardwareDetails() +
+      (canStage === 0 ? "<br>" : "");
 
     const capabilityAvailable =
       canEnabled &&
@@ -1394,12 +1429,7 @@ function createSitlPanel() {
     updateUartStatus();
   });
 
-  updateUdpStatus();
-  updateI2cStatus();
-  updateSpiStatus();
-  updateTcpStatus();
-  updateCanStatus();
-  updateUartStatus();
+  refreshAllSystemStatus();
 }
 
 function sendCfgUpdate(obj) {
@@ -1454,6 +1484,13 @@ function connect() {
           udpDetected = !!msg.udpDetected;
           tcpDetected = !!msg.tcpDetected;
           
+          canStage =
+            (typeof msg.canStage === "number")
+              ? Math.max(0, Math.min(5, Math.trunc(msg.canStage)))
+              : 0;
+
+          canDetected = canStage > 0;
+
           i2cRangeMm =
             (typeof msg.i2cRangeMm === "number")
               ? msg.i2cRangeMm
@@ -1541,12 +1578,7 @@ function connect() {
           console.log("TCP detected: ", tcpDetected);
           console.log("Ethernet IP:  ", ethernetIp);
 
-          updateUartStatus();
-          updateI2cStatus();
-          updateSpiStatus();
-          updateUdpStatus();
-          updateTcpStatus();
-          updateDiagnosticDisplay();                  
+          refreshAllSystemStatus();             
         }
       } catch (e) {
         console.log("Bad WS text message", e);
