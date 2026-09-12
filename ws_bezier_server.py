@@ -648,10 +648,11 @@ def open_CAN():
 
 def monitor_CAN(ser, bus):
     stage = 0
+    old_timeout = ser.timeout
 
     if bus is not None:
         stage = 1
-        
+
         try:
             msg = can.Message(
                 arbitration_id=0x123,
@@ -659,23 +660,30 @@ def monitor_CAN(ser, bus):
                 is_extended_id=False
             )
             
+            ser.timeout = 0.01
+
             bus.send(msg)
-            end_time = time.monotonic() + 0.40
-            
+            bus.recv(timeout=0.1)
+
+            end_time = time.monotonic() + 0.05
+
             while time.monotonic() < end_time and stage < 2:
                 line = ser.readline()
 
-                if line:                    
+                if line:
                     text = line.decode(
                         errors="replace"
                     ).strip()
-                    
 
                     if text.startswith("CAN_RX 0x123"):
                         stage = 2
 
         except Exception as e:
             print(f"[CBIT] CAN test failed: {e}")
+            stage = 0
+
+        finally:
+            ser.timeout = old_timeout
 
     return stage
 

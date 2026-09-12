@@ -1070,11 +1070,11 @@ function updateCanStatus() {
 
     canCheckbox.parentElement.lastChild.textContent =
       ` CAN Subsystem Bus (${statusText})`;
-
+    
     canStatus.innerHTML =
       getModeDetails("can") +
       getCanHardwareDetails() +
-      (canStage === 0 ? "<br>" : "");
+      ((systemMode !== "hardware" || canStage === 0) ? "<br>" : "");
 
     const capabilityAvailable =
       canEnabled &&
@@ -1082,8 +1082,9 @@ function updateCanStatus() {
 
     canStatus.innerHTML +=
       `<b>CAPABILITY:</b> Subsystem health and BIT reporting ${capabilityAvailable ? "available" : "unavailable"}`;
-
+    
     updateDiagnosticDisplay();
+
   }
 }
 
@@ -1824,7 +1825,7 @@ function render() {
     i2cRangeMm !== null 
   ) {
     const rangeMaxMm = 1000;
-    const sensorMaxScale = (systemMode === "hardware")? 10.0 : 1.0;
+    const sensorMaxScale = 1.0;
 
     sensorScale = Math.max(
       0.0,
