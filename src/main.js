@@ -128,6 +128,7 @@ function applyState(st) {
   spiCheckbox.checked = spiEnabled;
   tcpCheckbox.checked = tcpEnabled;
   canCheckbox.checked = canEnabled;
+  ethCheckbox.checked = ethEnabled;
 
   updateSpiCursor();
   refreshAllSystemStatus();
@@ -702,6 +703,7 @@ let i2cEnabled = true;
 let spiEnabled = true;
 let tcpEnabled = true;
 let canEnabled = true;
+let ethEnabled = true;
 
 let uartDetected = false;
 let udpDetected = false;
@@ -709,6 +711,7 @@ let i2cDetected = false;
 let spiDetected = false;
 let tcpDetected = false;
 let canDetected = false;
+let ethDetected = false;
 
 let uartSimulated = true;
 let udpSimulated = true;
@@ -716,6 +719,7 @@ let i2cSimulated = true;
 let spiSimulated = true;
 let tcpSimulated = false;
 let canSimulated = false;
+let ethSimulated = true;
 
 let canStage = 0;
 let sensorScale = 1.0;
@@ -757,6 +761,8 @@ let canCheckbox = null;
 let canStatus = null;
 let uartCheckbox = null;
 let uartStatus = null;
+let ethCheckbox = null;
+let ethStatus = null;
 
 const DEFAULT_STATE = {
   systemMode: "sitl",
@@ -767,6 +773,7 @@ const DEFAULT_STATE = {
   spiEnabled: true,
   tcpEnabled: true,
   canEnabled: true,
+  ethEnabled: true,
 
   TESS: 32,
   heightScale: 2.0,
@@ -889,8 +896,7 @@ function getModeDetails(interfaceName) {
 
     case "udp":
       return (
-        "Fast network channel for continuously streaming live data<br>" +
-        `<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (IP ${ethernetIp ?? "unknown"})`
+        "Fast network channel for continuously streaming live data"
       );
 
     case "i2c":
@@ -907,8 +913,7 @@ function getModeDetails(interfaceName) {
 
     case "tcp":
       return (
-        "Reliable network channel for commands and settings<br>" +
-        `<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (IP ${ethernetIp ?? "unknown"})`
+        "Reliable network channel for commands and settings"
       );
 
     case "can":
@@ -1129,7 +1134,8 @@ function updateDiagnosticDisplay() {
     udpStatus,
     i2cStatus,
     spiStatus,
-    tcpStatus
+    tcpStatus,
+    ethStatus
   ];
 
   if (uartEnabled) {
@@ -1155,6 +1161,7 @@ function updateDiagnosticDisplay() {
     updateI2cStatus();
     updateSpiStatus();
     updateTcpStatus();
+    updateEthStatus();
 
     // CAN OFF:
     // Enabled subsystems continue providing their capability,
@@ -1204,9 +1211,10 @@ function updateDiagnosticDisplay() {
 
 function refreshAllSystemStatus() {
   updateUartStatus();
-  updateUdpStatus();
   updateI2cStatus();
   updateSpiStatus();
+  updateEthStatus();
+  updateUdpStatus();
   updateTcpStatus();
   updateCanStatus();
   updateDiagnosticDisplay();
@@ -1266,16 +1274,6 @@ function createSitlPanel() {
     </div>
 
     <div style="margin-top:12px;">
-      <label title="Receives high-rate surface data from an external source. Disable UDP to fall back to procedural Software-In-The-Loop (SITL) data.">
-        <input id="udpEnabled" type="checkbox">
-        UDP Telemetry
-      </label>
-
-      <div id="udpStatus"
-          style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
-    </div>
-
-    <div style="margin-top:12px;">
       <label title="I²C connects the controller to range sensors. Disable it to simulate loss of fresh sensor measurements.">
         <input id="i2cEnabled" type="checkbox">
         I²C Range Sensor
@@ -1286,7 +1284,8 @@ function createSitlPanel() {
     </div>
 
     <div style="margin-top:12px;">
-      <label title="SPI connects the controller to the IMU. Disable it to simulate loss of camera orientation control.">    <input id="spiEnabled" type="checkbox">
+      <label title="SPI connects the controller to the IMU. Disable it to simulate loss of camera orientation control.">
+        <input id="spiEnabled" type="checkbox">
         SPI IMU
       </label>
 
@@ -1295,12 +1294,33 @@ function createSitlPanel() {
     </div>
 
     <div style="margin-top:12px;">
-      <label title="TCP provides reliable command and control. Disable it to simulate loss of remote color commands and settings.">       <input id="tcpEnabled" type="checkbox">
-        TCP Control
+      <label title="Ethernet interface used by UDP telemetry and TCP control.">
+        <input id="ethEnabled" type="checkbox">
+        Ethernet
       </label>
 
-      <div id="tcpStatus"
+      <div id="ethStatus"
           style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
+
+      <div style="margin-top:8px; margin-left:24px;">
+        <label>
+          <input id="udpEnabled" type="checkbox">
+          UDP Telemetry
+        </label>
+
+        <div id="udpStatus"
+            style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
+      </div>
+
+      <div style="margin-top:12px; margin-left:24px;">
+        <label>
+          <input id="tcpEnabled" type="checkbox">
+          TCP Control
+        </label>
+
+        <div id="tcpStatus"
+            style="margin-top:6px; margin-left:24px; line-height:1.5;"></div>
+      </div>
     </div>
 
     <div style="margin-top:12px;">
@@ -1338,6 +1358,9 @@ function createSitlPanel() {
   tcpCheckbox = document.getElementById("tcpEnabled");
   tcpStatus = document.getElementById("tcpStatus");
 
+  ethCheckbox = document.getElementById("ethEnabled");
+  ethStatus = document.getElementById("ethStatus");
+
   canCheckbox = document.getElementById("canEnabled");
   canStatus = document.getElementById("canStatus");
 
@@ -1348,6 +1371,7 @@ function createSitlPanel() {
   i2cCheckbox.checked = i2cEnabled;
   spiCheckbox.checked = spiEnabled;
   tcpCheckbox.checked = tcpEnabled;
+  ethCheckbox.checked = ethEnabled;
   canCheckbox.checked = canEnabled;
   uartCheckbox.checked = uartEnabled;
 
@@ -1420,6 +1444,13 @@ function createSitlPanel() {
     updateDiagnosticDisplay();
   });
 
+  ethCheckbox.addEventListener("change", () => {
+    ethEnabled = ethCheckbox.checked;
+
+    updateEthStatus();
+    updateDiagnosticDisplay();
+  });
+
   canCheckbox.addEventListener("change", () => {
     canEnabled = canCheckbox.checked;
     updateCanStatus();
@@ -1431,6 +1462,25 @@ function createSitlPanel() {
   });
 
   refreshAllSystemStatus();
+}
+
+function updateEthStatus() {
+  if (ethStatus) {
+    const statusText = getInterfaceStatus(
+      ethEnabled,
+      ethDetected,
+      ethSimulated,
+      "ETHERNET DISABLED"
+    );
+
+    ethCheckbox.parentElement.lastChild.textContent =
+      ` Ethernet (${statusText})`;
+
+    ethStatus.innerHTML =
+      systemMode === "hardware"
+        ? `<b>HARDWARE:</b> NUCLEO-H753ZI Ethernet (IP ${ethernetIp ?? "unknown"})`
+        : `<b>SOFTWARE:</b> Simulated Ethernet interface`;
+  }
 }
 
 function sendCfgUpdate(obj) {
@@ -1484,7 +1534,8 @@ function connect() {
           spiDetected = !!msg.spiDetected;
           udpDetected = !!msg.udpDetected;
           tcpDetected = !!msg.tcpDetected;
-          
+          ethDetected = !!msg.ethDetected;        
+ 
           canStage =
             (typeof msg.canStage === "number")
               ? Math.max(0, Math.min(5, Math.trunc(msg.canStage)))
@@ -1744,6 +1795,7 @@ function saveAllState() {
 
     systemMode,
     uartEnabled,
+    ethEnabled,
     udpEnabled,
     i2cEnabled,
     spiEnabled,
@@ -1893,6 +1945,7 @@ function applyConfigDefaults() {
 function applySavedInterfaceState(st) {
   if (typeof st.systemMode === "string") systemMode = st.systemMode;
   if (typeof st.uartEnabled === "boolean") uartEnabled = st.uartEnabled;
+  if (typeof st.ethEnabled === "boolean") ethEnabled = st.ethEnabled;
   if (typeof st.udpEnabled === "boolean") udpEnabled = st.udpEnabled;
   if (typeof st.i2cEnabled === "boolean") i2cEnabled = st.i2cEnabled;
   if (typeof st.spiEnabled === "boolean") spiEnabled = st.spiEnabled;

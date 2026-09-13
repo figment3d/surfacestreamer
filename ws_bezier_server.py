@@ -521,6 +521,7 @@ def monitor_SPI(ser, last_spi_data, spi_fail_count):
     )
 
 def monitor_ETH(ser, last_ethernet_ip, eth_fail_count):
+    eth_detected = False
     ethernet_ip = None
 
     ser.write(b"ETH_STATUS\r\n")
@@ -540,6 +541,7 @@ def monitor_ETH(ser, last_ethernet_ip, eth_fail_count):
             ethernet_ip = parts[1]
             last_ethernet_ip = ethernet_ip
             eth_fail_count = 0
+            eth_detected = True
         else:
             eth_fail_count += 1
     else:
@@ -548,13 +550,15 @@ def monitor_ETH(ser, last_ethernet_ip, eth_fail_count):
     # Don't declare Ethernet offline because of
     # one or two missed/invalid responses.
     if (
-        ethernet_ip is None
+        not eth_detected
         and eth_fail_count < 3
         and last_ethernet_ip is not None
     ):
+        eth_detected = True
         ethernet_ip = last_ethernet_ip
 
     return (
+        eth_detected,
         ethernet_ip,
         last_ethernet_ip,
         eth_fail_count,
@@ -691,11 +695,12 @@ def make_hardware_status_message(
     uart_detected,
     i2c_detected,
     i2c_range_mm,
+    spi_detected,
+    eth_detected,
     ethernet_ip,
     udp_detected,
     tcp_detected,
     can_stage,
-    spi_detected,
     acc_x,
     acc_y,
     acc_z,
@@ -709,6 +714,7 @@ def make_hardware_status_message(
         "i2cDetected": i2c_detected,
         "i2cRangeMm": i2c_range_mm,
         "ethernetIp": ethernet_ip,
+        "ethDetected": eth_detected,
         "udpDetected": udp_detected,
         "tcpDetected": tcp_detected,
         "canStage": can_stage,
@@ -743,9 +749,10 @@ async def uart_monitor():
     last_can_test = 0.0
 
     ethernet_ip = None
+    eth_detected = False
     udp_detected = False
     tcp_detected = False
-    
+   
     while True:
         try:
             with serial.Serial(
@@ -791,6 +798,7 @@ async def uart_monitor():
                     i2c_detected = False
                     i2c_range_mm = None
                     spi_detected = False
+                    eth_detected = False
                     udp_detected = False
                     tcp_detected = False
                     ethernet_ip = None
@@ -811,6 +819,7 @@ async def uart_monitor():
 
                         # MONITOR ETH
                         (
+                            eth_detected,
                             ethernet_ip,
                             last_ethernet_ip,
                             eth_fail_count,
@@ -884,11 +893,12 @@ async def uart_monitor():
                         uart_detected,
                         i2c_detected,
                         i2c_range_mm,
+                        spi_detected,
+                        eth_detected,
                         ethernet_ip,
                         udp_detected,
                         tcp_detected,
                         can_stage_state,
-                        spi_detected,
                         acc_x,
                         acc_y,
                         acc_z,
@@ -922,18 +932,20 @@ async def uart_monitor():
                 False,                  # uart_detected
                 False,                  # i2c_detected
                 None,                   # i2c_range_mm
-                ethernet_ip,
+                False,                  # spi_detected
+                False,                  # eth_detected
+                None,                   # ethernet_ip
                 udp_detected,
                 tcp_detected,
                 can_stage_state,
-                False,                  # spi_detected
                 None,                   # acc_x
                 None,                   # acc_y
                 None,                   # acc_z
                 None,                   # gyr_x
                 None,                   # gyr_y
                 None                    # gyr_z
-            )                        
+            )
+
             if clients:
                 await asyncio.gather(
                     *[
