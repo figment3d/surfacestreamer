@@ -130,6 +130,9 @@ PID_TARGET = float(PID_CFG.get("target_center_height", 0.0))
 # CAN
 can_stage_state: int = 0
 
+# Real-time hardware monitoring
+MONITORING_ENABLED = True
+
 pid = PID(
     kp=PID_CFG.get("kp", 1.0),
     ki=PID_CFG.get("ki", 0.0),
@@ -404,6 +407,59 @@ def serial_command_matches(ser, command: str, expected_reply: str) -> bool:
 
     return reply == expected_reply
 
+def monitor_STM32(
+    ser,
+    stm32_fail_count,
+    stm32_was_detected
+):
+    stm32_detected = False
+
+    try:
+        ser.write(b"STM32_STATUS\r\n")
+        ser.flush()
+
+        # Keep this test short. The grace period handles occasional misses.
+        end_time = time.time() + 0.10
+
+        while time.time() < end_time:
+            if ser.in_waiting == 0:
+                time.sleep(0.005)
+                continue
+
+            text = ser.readline().decode(
+                errors="replace"
+            ).strip()
+
+            if text.startswith("STM32_READY"):
+                stm32_detected = True
+                stm32_was_detected = True
+                stm32_fail_count = 0
+                break
+
+        if not stm32_detected:
+            stm32_fail_count += 1
+
+            if (
+                stm32_was_detected
+                and stm32_fail_count < 3
+            ):
+                stm32_detected = True
+
+    except Exception:
+        stm32_fail_count += 1
+
+        if (
+            stm32_was_detected
+            and stm32_fail_count < 3
+        ):
+            stm32_detected = True
+
+    return (
+        stm32_detected,
+        stm32_fail_count,
+        stm32_was_detected
+    )
+ 
 def monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count):
     i2c_detected = False
     i2c_range_mm = None
@@ -692,6 +748,8 @@ def monitor_CAN(ser, bus):
     return stage
 
 def make_hardware_status_message(
+    stm32_detected,
+    rpi_detected,
     uart_detected,
     i2c_detected,
     i2c_range_mm,
@@ -710,6 +768,8 @@ def make_hardware_status_message(
 ):
     message = json.dumps({
         "type": "hardware_status",
+        "stm32Detected": stm32_detected,
+        "raspberryPiDetected": rpi_detected,
         "uartDetected": uart_detected,
         "i2cDetected": i2c_detected,
         "i2cRangeMm": i2c_range_mm,
@@ -739,6 +799,7 @@ async def uart_monitor():
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.setblocking(False)
     udp_sock.bind(("0.0.0.0", 10000))
+
     tcp_server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tcp_server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     tcp_server_sock.setblocking(False)
@@ -752,7 +813,7 @@ async def uart_monitor():
     eth_detected = False
     udp_detected = False
     tcp_detected = False
-   
+
     while True:
         try:
             with serial.Serial(
@@ -763,6 +824,9 @@ async def uart_monitor():
 
                 time.sleep(0.2)
                 ser.reset_input_buffer()
+
+                stm32_fail_count = 0
+                stm32_was_detected = False
 
                 last_i2c_range_mm = None
                 i2c_fail_count = 0
@@ -776,6 +840,21 @@ async def uart_monitor():
                 last_udp_seen = None
                 last_tcp_seen = None
                 tcp_client = None
+
+                # Persistent status values. When real-time monitoring is
+                # disabled, preserve the last known state rather than
+                # resetting every 50 ms.
+                stm32_detected = False
+                rpi_detected = False
+                i2c_detected = False
+                i2c_range_mm = None
+                spi_detected = False
+                eth_detected = False
+                ethernet_ip = None
+                udp_detected = False
+                tcp_detected = False
+                acc_x = acc_y = acc_z = None
+                gyr_x = gyr_y = gyr_z = None
 
                 uart_detected = False
 
@@ -792,21 +871,24 @@ async def uart_monitor():
 
                 if not uart_detected:
                     await asyncio.sleep(0.05)
-                    continue 
- 
-                while True:
-                    i2c_detected = False
-                    i2c_range_mm = None
-                    spi_detected = False
-                    eth_detected = False
-                    udp_detected = False
-                    tcp_detected = False
-                    ethernet_ip = None
-                    
-                    acc_x = acc_y = acc_z = None
-                    gyr_x = gyr_y = gyr_z = None
+                    continue
 
-                    if uart_detected:              
+                while True:
+                    if MONITORING_ENABLED:
+                        # MONITOR STM32
+                        (
+                            stm32_detected,
+                            stm32_fail_count,
+                            stm32_was_detected
+                        ) = monitor_STM32(
+                            ser,
+                            stm32_fail_count,
+                            stm32_was_detected
+                        )
+
+                        # MONITOR PI
+                        rpi_detected = False
+
                         # MONITOR SPI
                         (
                             spi_detected,
@@ -815,7 +897,11 @@ async def uart_monitor():
                             last_spi_data,
                             spi_fail_count,
                             spi_reply
-                        ) = monitor_SPI(ser, last_spi_data, spi_fail_count)
+                        ) = monitor_SPI(
+                            ser,
+                            last_spi_data,
+                            spi_fail_count
+                        )
 
                         # MONITOR ETH
                         (
@@ -824,14 +910,21 @@ async def uart_monitor():
                             last_ethernet_ip,
                             eth_fail_count,
                             eth_reply
-                        ) = monitor_ETH(ser, last_ethernet_ip, eth_fail_count)
+                        ) = monitor_ETH(
+                            ser,
+                            last_ethernet_ip,
+                            eth_fail_count
+                        )
 
                         # MONITOR UDP
                         (
                             udp_detected,
                             udp_ip,
                             last_udp_seen
-                        ) = monitor_UDP(udp_sock, last_udp_seen)
+                        ) = monitor_UDP(
+                            udp_sock,
+                            last_udp_seen
+                        )
 
                         # MONITOR I2C
                         (
@@ -840,17 +933,24 @@ async def uart_monitor():
                             last_i2c_range_mm,
                             i2c_fail_count,
                             i2c_reply
-                        ) = monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count)
+                        ) = monitor_I2C(
+                            ser,
+                            last_i2c_range_mm,
+                            i2c_fail_count
+                        )
 
                         # MONITOR TCP
                         (
                             tcp_detected,
                             tcp_client,
                             last_tcp_seen
-                        ) = monitor_TCP(tcp_server_sock, tcp_client, last_tcp_seen)
+                        ) = monitor_TCP(
+                            tcp_server_sock,
+                            tcp_client,
+                            last_tcp_seen
+                        )
 
                         # MONITOR CAN
-
                         now = time.monotonic()
 
                         if now - last_can_test >= 1.0:
@@ -888,8 +988,10 @@ async def uart_monitor():
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
                     spi_detected_state = spi_detected
-                                        
+
                     message = make_hardware_status_message(
+                        stm32_detected,
+                        rpi_detected,
                         uart_detected,
                         i2c_detected,
                         i2c_range_mm,
@@ -918,26 +1020,42 @@ async def uart_monitor():
 
                     await asyncio.sleep(0.05)
 
-        except serial.SerialException:
+        except serial.SerialException as e:
+            print(f"[CBIT] SERIAL EXCEPTION: {e}")
+
             uart_detected_state = False
             i2c_detected_state = False
             spi_detected_state = False
 
+            # A serial disconnect means the STM32 connection is gone.
+            # Clear all STM32-dependent status immediately.
+            ethernet_ip = None
+            eth_detected = False
+            udp_detected = False
+            tcp_detected = False
+
             if can_bus is not None:
-                can_stage_state = 1
-            else:
-                can_stage_state = 0
+                try:
+                    can_bus.shutdown()
+                except Exception:
+                    pass
+
+                can_bus = None
+
+            can_stage_state = 0
 
             message = make_hardware_status_message(
+                False,                  # stm32_detected
+                False,                  # rpi_detected
                 False,                  # uart_detected
                 False,                  # i2c_detected
                 None,                   # i2c_range_mm
                 False,                  # spi_detected
                 False,                  # eth_detected
                 None,                   # ethernet_ip
-                udp_detected,
-                tcp_detected,
-                can_stage_state,
+                False,                  # udp_detected
+                False,                  # tcp_detected
+                0,                      # can_stage
                 None,                   # acc_x
                 None,                   # acc_y
                 None,                   # acc_z
@@ -979,7 +1097,7 @@ async def handler(ws):
         }))
   
     async def rx_loop():
-        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, WAVE_FREQUENCY, WAVE_AMPLITUDE, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change
+        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, WAVE_FREQUENCY, WAVE_AMPLITUDE, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change, MONITORING_ENABLED
         try:
             async for msg in ws:
                 if isinstance(msg, (bytes, bytearray)):
@@ -1033,6 +1151,10 @@ async def handler(ws):
                     _prev_base = None
                     pending_source_change = DATA_SOURCE
                     print(f"[LIVE] data_source={DATA_SOURCE}")
+
+                if "monitoring_enabled" in j:
+                    MONITORING_ENABLED = bool(j["monitoring_enabled"])
+                    print(f"[LIVE] monitoring_enabled={MONITORING_ENABLED}")
 
         except websockets.ConnectionClosed:
             pass

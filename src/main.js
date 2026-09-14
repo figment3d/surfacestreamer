@@ -122,6 +122,7 @@ function applyState(st) {
   sitlModeRadio.checked = systemMode === "sitl";
   hardwareModeRadio.checked = systemMode === "hardware";
 
+  monitoringCheckbox.checked = monitoringEnabled;
   uartCheckbox.checked = uartEnabled;
   udpCheckbox.checked = udpEnabled;
   i2cCheckbox.checked = i2cEnabled;
@@ -696,6 +697,8 @@ let cfg = null;
 let systemMode = "sitl";   // "sitl" or "hardware"
 let sitlModeRadio = null;
 let hardwareModeRadio = null;
+let monitoringEnabled = true;
+let monitoringCheckbox = null;
 
 let uartEnabled = true;
 let udpEnabled = true;
@@ -720,6 +723,12 @@ let spiSimulated = true;
 let tcpSimulated = false;
 let canSimulated = false;
 let ethSimulated = true;
+
+let stm32Detected = false;
+let raspberryPiDetected = false;
+
+let stm32Status = null;
+let raspberryPiStatus = null;
 
 let canStage = 0;
 let sensorScale = 1.0;
@@ -767,6 +776,7 @@ let ethStatus = null;
 const DEFAULT_STATE = {
   systemMode: "sitl",
 
+  monitoringEnabled: true,
   uartEnabled: true,
   udpEnabled: true,
   i2cEnabled: true,
@@ -1210,6 +1220,7 @@ function updateDiagnosticDisplay() {
 }
 
 function refreshAllSystemStatus() {
+  updateHardwareStatus();
   updateUartStatus();
   updateI2cStatus();
   updateSpiStatus();
@@ -1261,6 +1272,22 @@ function createSitlPanel() {
         <button id="loadStateButton" type="button">Load</button>
         <button id="restoreStateButton" type="button">Restore Defaults</button>        
       </div>      
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-weight:bold; margin-bottom:6px;">
+        HARDWARE
+      </div>
+
+      <div id="stm32Status"></div>
+      <div id="raspberryPiStatus" style="margin-top:4px;"></div>
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <label title="Enable continuous real-time hardware health monitoring.">
+        <input id="monitoringEnabled" type="checkbox">
+        Real-Time Monitoring
+      </label>
     </div>
 
     <div>
@@ -1336,6 +1363,14 @@ function createSitlPanel() {
 
   document.body.appendChild(panel);
   
+  monitoringCheckbox =
+  document.getElementById("monitoringEnabled");
+
+  monitoringCheckbox.checked = monitoringEnabled;
+    stm32Status = document.getElementById("stm32Status");
+
+  raspberryPiStatus = document.getElementById("raspberryPiStatus");
+
   const saveStateButton = document.getElementById("saveStateButton");
   const loadStateButton = document.getElementById("loadStateButton");
   const restoreStateButton = document.getElementById("restoreStateButton");
@@ -1367,6 +1402,7 @@ function createSitlPanel() {
   uartCheckbox = document.getElementById("uartEnabled");
   uartStatus = document.getElementById("uartStatus");
 
+  monitoringCheckbox.checked = monitoringEnabled;
   udpCheckbox.checked = udpEnabled;
   i2cCheckbox.checked = i2cEnabled;
   spiCheckbox.checked = spiEnabled;
@@ -1376,6 +1412,14 @@ function createSitlPanel() {
   uartCheckbox.checked = uartEnabled;
 
   updateSpiCursor();
+
+  monitoringCheckbox.addEventListener("change", () => {
+    monitoringEnabled = monitoringCheckbox.checked;
+
+    sendCfgUpdate({
+      monitoring_enabled: monitoringEnabled
+    });
+  });
 
   saveStateButton.addEventListener("click", () => {
     saveAllState();
@@ -1464,6 +1508,28 @@ function createSitlPanel() {
   refreshAllSystemStatus();
 }
 
+function updateHardwareStatus() {
+  if (stm32Status) {
+    const status =
+      systemMode === "hardware"
+        ? (stm32Detected ? "ONLINE" : "HARDWARE NOT DETECTED")
+        : "SIMULATED";
+
+    stm32Status.textContent =
+      `STM32 NUCLEO-H753ZI (${status})`;
+  }
+
+  if (raspberryPiStatus) {
+    const status =
+      systemMode === "hardware"
+        ? (raspberryPiDetected ? "ONLINE" : "HARDWARE NOT DETECTED")
+        : "SIMULATED";
+
+    raspberryPiStatus.textContent =
+      `Raspberry Pi 5 (${status})`;
+  }
+}
+
 function updateEthStatus() {
   if (ethStatus) {
     const statusText = getInterfaceStatus(
@@ -1529,6 +1595,8 @@ function connect() {
         }
 
         if (msg.type === "hardware_status") {
+          stm32Detected = !!msg.stm32Detected;
+          raspberryPiDetected = !!msg.raspberryPiDetected;
           uartDetected = !!msg.uartDetected;
           i2cDetected = !!msg.i2cDetected;
           spiDetected = !!msg.spiDetected;
@@ -1639,9 +1707,7 @@ function connect() {
       const buf = ev.data;
 
       if (buf instanceof ArrayBuffer && buf.byteLength >= 8) {
-        if (i2cEnabled || acceptOneFrame) {
-          acceptOneFrame = false;
-
+        
           const dv = new DataView(buf);
           const pnx = dv.getUint32(0, true);
           const pny = dv.getUint32(4, true);
@@ -1681,7 +1747,7 @@ function connect() {
               expectedBytes
             );
           }
-        }
+        
       }
     }
   };
@@ -1794,6 +1860,7 @@ function saveAllState() {
     yaw, pitch, radius,
 
     systemMode,
+    monitoringEnabled,
     uartEnabled,
     ethEnabled,
     udpEnabled,
@@ -1944,6 +2011,7 @@ function applyConfigDefaults() {
 
 function applySavedInterfaceState(st) {
   if (typeof st.systemMode === "string") systemMode = st.systemMode;
+  if (typeof st.monitoringEnabled === "boolean") monitoringEnabled = st.monitoringEnabled;
   if (typeof st.uartEnabled === "boolean") uartEnabled = st.uartEnabled;
   if (typeof st.ethEnabled === "boolean") ethEnabled = st.ethEnabled;
   if (typeof st.udpEnabled === "boolean") udpEnabled = st.udpEnabled;
@@ -1967,7 +2035,7 @@ async function boot() {
   applySavedInterfaceState(st);
 
   createSitlPanel();
-
+  
   // Apply config defaults (baseline)
   applyConfigDefaults();
 
