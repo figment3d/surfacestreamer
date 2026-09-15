@@ -132,6 +132,13 @@ can_stage_state: int = 0
 
 # Real-time hardware monitoring
 MONITORING_ENABLED = True
+UART_ENABLED = True
+I2C_ENABLED = True
+SPI_ENABLED = True
+ETH_ENABLED = True
+UDP_ENABLED = True
+TCP_ENABLED = True
+CAN_ENABLED = True
 
 pid = PID(
     kp=PID_CFG.get("kp", 1.0),
@@ -503,78 +510,120 @@ def monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count):
         i2c_reply
     )
 
-def monitor_SPI(ser, last_spi_data, spi_fail_count):
-    spi_detected = False
+def read_SPI_data(
+    ser,
+    last_spi_data
+):
+    spi_data_valid = False
+
     acc_x = acc_y = acc_z = None
     gyr_x = gyr_y = gyr_z = None
 
-    ser.write(b"SPI_STATUS\r\n")
+    ser.write(b"SPI_DATA\r\n")
     ser.flush()
 
-    spi_reply = ser.readline().decode(
-        errors="replace"
-    ).strip()
+    spi_data_reply = read_serial_until(
+        ser,
+        "ACC ",
+        timeout=0.10
+    )
 
-    if spi_reply == "SPI_CHIP_ID 0x24":
-        ser.write(b"SPI_DATA\r\n")
-        ser.flush()
+    parts = spi_data_reply.split()
 
-        spi_data_reply = ser.readline().decode(
-            errors="replace"
-        ).strip()
-
-        parts = spi_data_reply.split()
-
-        if (
-            len(parts) == 8
-            and parts[0] == "ACC"
-            and parts[4] == "GYR"
-        ):
-            try:
-                acc_x = int(parts[1])
-                acc_y = int(parts[2])
-                acc_z = int(parts[3])
-                gyr_x = int(parts[5])
-                gyr_y = int(parts[6])
-                gyr_z = int(parts[7])
-
-                last_spi_data = (
-                    acc_x, acc_y, acc_z,
-                    gyr_x, gyr_y, gyr_z
-                )
-
-                spi_fail_count = 0
-                spi_detected = True
-
-            except ValueError:
-                spi_fail_count += 1
-        else:
-            spi_fail_count += 1
-    else:
-        spi_fail_count += 1
-
-    # Don't declare SPI offline because of
-    # one or two missed/invalid responses.
     if (
-        not spi_detected
-        and spi_fail_count < 5
-        and last_spi_data is not None
+        len(parts) == 8
+        and parts[0] == "ACC"
+        and parts[4] == "GYR"
     ):
-        spi_detected = True
+        try:
+            acc_x = int(parts[1])
+            acc_y = int(parts[2])
+            acc_z = int(parts[3])
 
+            gyr_x = int(parts[5])
+            gyr_y = int(parts[6])
+            gyr_z = int(parts[7])
+
+            last_spi_data = (
+                acc_x, acc_y, acc_z,
+                gyr_x, gyr_y, gyr_z
+            )
+
+            spi_data_valid = True
+
+        except ValueError:
+            pass
+
+    if not spi_data_valid and last_spi_data is not None:
         (
             acc_x, acc_y, acc_z,
             gyr_x, gyr_y, gyr_z
         ) = last_spi_data
 
     return (
-        spi_detected,
+        spi_data_valid,
         acc_x, acc_y, acc_z,
         gyr_x, gyr_y, gyr_z,
         last_spi_data,
+        spi_data_reply
+    )
+
+def monitor_SPI_health(
+    ser,
+    spi_fail_count,
+    spi_was_detected
+):
+    ser.write(b"SPI_STATUS\r\n")
+    ser.flush()
+
+    spi_reply = read_serial_until(
+        ser,
+        "SPI_CHIP_ID ",
+        timeout=0.10
+    )
+
+    if spi_reply == "SPI_CHIP_ID 0x24":
+        spi_detected = True
+        spi_fail_count = 0
+        spi_was_detected = True
+    else:
+        spi_fail_count += 1
+
+        if (
+            spi_was_detected
+            and spi_fail_count < 5
+        ):
+            spi_detected = True
+        else:
+            spi_detected = False
+
+    return (
+        spi_detected,
         spi_fail_count,
+        spi_was_detected,
         spi_reply
     )
+
+def read_serial_until(
+    ser,
+    expected_prefix,
+    timeout=0.10
+):
+    end_time = time.time() + timeout
+
+    while time.time() < end_time:
+        if ser.in_waiting == 0:
+            time.sleep(0.002)
+            continue
+
+        text = ser.readline().decode(
+            errors="replace"
+        ).strip()
+
+        if text.startswith(expected_prefix):
+            return text
+
+    return ""
 
 def monitor_ETH(ser, last_ethernet_ip, eth_fail_count):
     eth_detected = False
@@ -833,6 +882,7 @@ async def uart_monitor():
 
                 last_spi_data = None
                 spi_fail_count = 0
+                spi_was_detected = False
 
                 last_ethernet_ip = None
                 eth_fail_count = 0
@@ -874,116 +924,153 @@ async def uart_monitor():
                     continue
 
                 while True:
+                    # Always acquire SPI/IMU data so its update rate remains
+                    # measurable even when CBIT monitoring is disabled.
+                    (
+                        spi_data_valid,
+                        acc_x, acc_y, acc_z,
+                        gyr_x, gyr_y, gyr_z,
+                        last_spi_data,
+                        spi_data_reply
+                    ) = read_SPI_data(
+                        ser,
+                        last_spi_data
+                    )
+
                     if MONITORING_ENABLED:
-                        # MONITOR STM32
-                        (
-                            stm32_detected,
-                            stm32_fail_count,
-                            stm32_was_detected
-                        ) = monitor_STM32(
-                            ser,
-                            stm32_fail_count,
-                            stm32_was_detected
-                        )
+                        if UART_ENABLED:
+                            # MONITOR STM32
+                            (
+                                stm32_detected,
+                                stm32_fail_count,
+                                stm32_was_detected
+                            ) = monitor_STM32(
+                                ser,
+                                stm32_fail_count,
+                                stm32_was_detected
+                            )
+                        else:
+                            stm32_detected = False
 
                         # MONITOR PI
                         rpi_detected = False
 
+                        # MONITOR I2C
+                        if I2C_ENABLED:
+                            (
+                                i2c_detected,
+                                i2c_range_mm,
+                                last_i2c_range_mm,
+                                i2c_fail_count,
+                                i2c_reply
+                            ) = monitor_I2C(
+                                ser,
+                                last_i2c_range_mm,
+                                i2c_fail_count
+                            )
+                        else:
+                            i2c_detected = False
+                            i2c_range_mm = None
+
                         # MONITOR SPI
-                        (
-                            spi_detected,
-                            acc_x, acc_y, acc_z,
-                            gyr_x, gyr_y, gyr_z,
-                            last_spi_data,
-                            spi_fail_count,
-                            spi_reply
-                        ) = monitor_SPI(
-                            ser,
-                            last_spi_data,
-                            spi_fail_count
-                        )
+                        # BMI270 presence is determined by its chip ID.
+                        # SPI_DATA remains independent so we can measure
+                        # the actual IMU update rate separately.
+                        if SPI_ENABLED:
+                            (
+                                spi_detected,
+                                spi_fail_count,
+                                spi_was_detected,
+                                spi_reply
+                            ) = monitor_SPI_health(
+                                ser,
+                                spi_fail_count,
+                                spi_was_detected
+                            )
+                        else:
+                             spi_detected = False
 
                         # MONITOR ETH
-                        (
-                            eth_detected,
-                            ethernet_ip,
-                            last_ethernet_ip,
-                            eth_fail_count,
-                            eth_reply
-                        ) = monitor_ETH(
-                            ser,
-                            last_ethernet_ip,
-                            eth_fail_count
-                        )
+                        if ETH_ENABLED:
+                            (
+                                eth_detected,
+                                ethernet_ip,
+                                last_ethernet_ip,
+                                eth_fail_count,
+                                eth_reply
+                            ) = monitor_ETH(
+                                ser,
+                                last_ethernet_ip,
+                                eth_fail_count
+                            )
 
-                        # MONITOR UDP
-                        (
-                            udp_detected,
-                            udp_ip,
-                            last_udp_seen
-                        ) = monitor_UDP(
-                            udp_sock,
-                            last_udp_seen
-                        )
+                            # MONITOR UDP
+                            if UDP_ENABLED:
+                                (
+                                    udp_detected,
+                                    udp_ip,
+                                    last_udp_seen
+                                ) = monitor_UDP(
+                                    udp_sock,
+                                    last_udp_seen
+                                )
+                            else:
+                                udp_detected = False
 
-                        # MONITOR I2C
-                        (
-                            i2c_detected,
-                            i2c_range_mm,
-                            last_i2c_range_mm,
-                            i2c_fail_count,
-                            i2c_reply
-                        ) = monitor_I2C(
-                            ser,
-                            last_i2c_range_mm,
-                            i2c_fail_count
-                        )
-
-                        # MONITOR TCP
-                        (
-                            tcp_detected,
-                            tcp_client,
-                            last_tcp_seen
-                        ) = monitor_TCP(
-                            tcp_server_sock,
-                            tcp_client,
-                            last_tcp_seen
-                        )
+                            # MONITOR TCP
+                            if TCP_ENABLED:
+                                (
+                                    tcp_detected,
+                                    tcp_client,
+                                    last_tcp_seen
+                                ) = monitor_TCP(
+                                    tcp_server_sock,
+                                    tcp_client,
+                                    last_tcp_seen
+                                )
+                            else:
+                                tcp_detected = False
+                        else:
+                            eth_detected = False
+                            ethernet_ip = None
+                            udp_detected = False
+                            tcp_detected = False     
 
                         # MONITOR CAN
-                        now = time.monotonic()
+                        if CAN_ENABLED:
+                            now = time.monotonic()
 
-                        if now - last_can_test >= 1.0:
-                            last_can_test = now
+                            if now - last_can_test >= 1.0:
+                                last_can_test = now
 
-                            if not is_CAN_adapter_present():
-                                can_stage_state = 0
-
-                                if can_bus is not None:
-                                    try:
-                                        can_bus.shutdown()
-                                    except Exception:
-                                        pass
-
-                                    can_bus = None
-
-                            else:
-                                if can_bus is None:
-                                    can_bus = open_CAN()
+                                if not is_CAN_adapter_present():
+                                    can_stage_state = 0
 
                                     if can_bus is not None:
-                                        can_stage_state = 1
+                                        try:
+                                            can_bus.shutdown()
+                                        except Exception:
+                                            pass
 
-                                if can_bus is not None:
-                                    can_stage = monitor_CAN(
-                                        ser,
-                                        can_bus
-                                    )
+                                        can_bus = None
 
-                                    if can_stage == 2:
-                                        can_stage_state = 2
-                                    else:
-                                        can_stage_state = 1
+                                else:
+                                    if can_bus is None:
+                                        can_bus = open_CAN()
+
+                                        if can_bus is not None:
+                                            can_stage_state = 1
+
+                                    if can_bus is not None:
+                                        can_stage = monitor_CAN(
+                                            ser,
+                                            can_bus
+                                        )
+
+                                        if can_stage == 2:
+                                            can_stage_state = 2
+                                        else:
+                                            can_stage_state = 1
 
                     uart_detected_state = uart_detected
                     i2c_detected_state = i2c_detected
@@ -1095,9 +1182,17 @@ async def handler(ws):
                 else False
             )
         }))
-  
+
     async def rx_loop():
-        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA, WAVE_FREQUENCY, WAVE_AMPLITUDE, CTRL_GAIN, _prev_base, DATA_SOURCE, pending_source_change, MONITORING_ENABLED
+        global PID_ENABLED, NOISE_SIGMA, EMA_ALPHA
+        global WAVE_FREQUENCY, WAVE_AMPLITUDE
+        global CTRL_GAIN, _prev_base, DATA_SOURCE
+        global pending_source_change
+
+        global MONITORING_ENABLED
+        global UART_ENABLED, I2C_ENABLED, SPI_ENABLED
+        global ETH_ENABLED, UDP_ENABLED, TCP_ENABLED, CAN_ENABLED  
+
         try:
             async for msg in ws:
                 if isinstance(msg, (bytes, bytearray)):
@@ -1108,6 +1203,34 @@ async def handler(ws):
                     continue
                 if j.get("type") != "cfg":
                     continue
+
+                if "uart_enabled" in j:
+                    UART_ENABLED = bool(j["uart_enabled"])
+                    print(f"[LIVE] uart_enabled={UART_ENABLED}")
+
+                if "i2c_enabled" in j:
+                    I2C_ENABLED = bool(j["i2c_enabled"])
+                    print(f"[LIVE] i2c_enabled={I2C_ENABLED}")
+
+                if "spi_enabled" in j:
+                    SPI_ENABLED = bool(j["spi_enabled"])
+                    print(f"[LIVE] spi_enabled={SPI_ENABLED}")
+
+                if "eth_enabled" in j:
+                    ETH_ENABLED = bool(j["eth_enabled"])
+                    print(f"[LIVE] eth_enabled={ETH_ENABLED}")
+
+                if "udp_enabled" in j:
+                    UDP_ENABLED = bool(j["udp_enabled"])
+                    print(f"[LIVE] udp_enabled={UDP_ENABLED}")
+
+                if "tcp_enabled" in j:
+                    TCP_ENABLED = bool(j["tcp_enabled"])
+                    print(f"[LIVE] tcp_enabled={TCP_ENABLED}")
+
+                if "can_enabled" in j:
+                    CAN_ENABLED = bool(j["can_enabled"])
+                    print(f"[LIVE] can_enabled={CAN_ENABLED}")
 
                 if "pid_enabled" in j:
                     PID_ENABLED = bool(j["pid_enabled"])

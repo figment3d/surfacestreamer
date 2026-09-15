@@ -14,19 +14,35 @@ const canvas = document.querySelector("canvas") || (() => {
 canvas.style.display = "block";
 canvas.style.width = "100vw";
 canvas.style.height = "100vh";
+const VIEWPORT_LEFT_PX = 470;
 
 const gl = canvas.getContext("webgl2", { antialias: true });
 if (!gl) throw new Error("WebGL2 not available");
 
 function resize() {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
-  const w = Math.floor((canvas.clientWidth || window.innerWidth) * dpr);
-  const h = Math.floor((canvas.clientHeight || window.innerHeight) * dpr);
+
+  const w = Math.floor(
+    (canvas.clientWidth || window.innerWidth) * dpr
+  );
+
+  const h = Math.floor(
+    (canvas.clientHeight || window.innerHeight) * dpr
+  );
+
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
-    gl.viewport(0, 0, w, h);
   }
+
+  const left = Math.floor(VIEWPORT_LEFT_PX * dpr);
+
+  gl.viewport(
+    left,
+    0,
+    Math.max(1, w - left),
+    h
+  );
 }
 window.addEventListener("resize", resize);
 resize();
@@ -1464,8 +1480,12 @@ function createSitlPanel() {
 
   i2cCheckbox.addEventListener("change", () => {
     i2cEnabled = i2cCheckbox.checked;
-    updateI2cStatus();
-    updateDiagnosticDisplay();
+
+    sendCfgUpdate({
+        i2c_enabled: i2cEnabled
+    });
+
+    refreshAllSystemStatus();
   });
 
   spiCheckbox.addEventListener("change", () => {
@@ -1475,33 +1495,52 @@ function createSitlPanel() {
       dragging = false;
     }
 
+    sendCfgUpdate({
+      spi_enabled: spiEnabled
+    });
+
     updateSpiCursor();
-    updateSpiStatus();
-    updateDiagnosticDisplay();
+    refreshAllSystemStatus();
+  });
+
+  ethCheckbox.addEventListener("change", () => {
+    ethEnabled = ethCheckbox.checked;
+
+    sendCfgUpdate({
+        eth_enabled: ethEnabled
+    });
+
+    refreshAllSystemStatus();
   });
 
   tcpCheckbox.addEventListener("change", () => {
     tcpEnabled = tcpCheckbox.checked;
     colorMode = tcpEnabled ? 1 : 0;
 
-    updateTcpStatus();
-    updateDiagnosticDisplay();
-  });
+    sendCfgUpdate({
+      tcp_enabled: tcpEnabled
+    });
 
-  ethCheckbox.addEventListener("change", () => {
-    ethEnabled = ethCheckbox.checked;
-
-    updateEthStatus();
-    updateDiagnosticDisplay();
+    refreshAllSystemStatus();
   });
 
   canCheckbox.addEventListener("change", () => {
     canEnabled = canCheckbox.checked;
-    updateCanStatus();
+
+    sendCfgUpdate({
+        can_enabled: canEnabled
+    });
+
+    refreshAllSystemStatus();
   });
 
   uartCheckbox.addEventListener("change", () => {
     uartEnabled = uartCheckbox.checked;
+
+    sendCfgUpdate({
+      uart_enabled: uartEnabled
+    });
+
     updateUartStatus();
   });
 
@@ -1629,8 +1668,7 @@ function connect() {
           gyrY = (typeof msg.gyrY === "number") ? msg.gyrY : null;
           gyrZ = (typeof msg.gyrZ === "number") ? msg.gyrZ : null;
 
-          if (
-            spiDetected &&
+          if (            
             accX !== null &&
             accY !== null &&
             accZ !== null &&
@@ -1888,6 +1926,10 @@ gl.clearColor(0.06, 0.08, 0.14, 1.0);
 // ======================================================
 const fpsDisplay = document.createElement("div");
 
+let frameCount = 0;
+let fps = 0;
+let fpsLastTime = performance.now();
+
 let spiUpdateCount = 0;
 let spiUpdateHz = 0;
 let spiLastTime = performance.now();
@@ -1905,29 +1947,74 @@ fpsDisplay.textContent = "-- FPS";
 
 document.body.appendChild(fpsDisplay);
 
-function updateFps() {
+const spiDisplay = document.createElement("div");
+
+spiDisplay.style.position = "fixed";
+spiDisplay.style.top = "36px";
+spiDisplay.style.right = "10px";
+spiDisplay.style.zIndex = "9999";
+spiDisplay.style.padding = "4px 8px";
+spiDisplay.style.background = "rgba(0, 0, 0, 0.65)";
+spiDisplay.style.color = "yellow";
+spiDisplay.style.fontFamily = "monospace";
+spiDisplay.style.fontSize = "18px";
+spiDisplay.textContent = "-- SPI Hz";
+
+document.body.appendChild(spiDisplay);
+
+function updateSpiRate() {
   const now = performance.now();
   const elapsed = now - spiLastTime;
 
   if (elapsed >= 1000) {
-    spiUpdateHz = spiUpdateCount * 1000 / elapsed;
+    spiUpdateHz =
+      spiUpdateCount * 1000 / elapsed;
 
-    fpsDisplay.textContent =
-      `${spiUpdateHz.toFixed(1)} FPS`;
+    spiDisplay.textContent =
+      `${spiUpdateHz.toFixed(1)} SPI Hz`;
 
     spiUpdateCount = 0;
     spiLastTime = now;
   }
 }
 
+function updateFps() {
+  frameCount++;
+
+  const now = performance.now();
+  const elapsed = now - fpsLastTime;
+
+  if (elapsed >= 1000) {
+    fps = frameCount * 1000 / elapsed;
+
+    fpsDisplay.textContent =
+      `${fps.toFixed(1)} FPS`;
+
+    frameCount = 0;
+    fpsLastTime = now;
+  }
+}
+
 function render() {
   updateFps();
+  updateSpiRate();
 
   resize();  
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-  const aspect = canvas.width / Math.max(1, canvas.height);
-  const proj = mat4Perspective(60 * Math.PI / 180, aspect, 0.05, 100.0);
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const left = Math.floor(VIEWPORT_LEFT_PX * dpr);
+  const viewportWidth = Math.max(1, canvas.width - left);
+
+  const aspect =
+    viewportWidth / Math.max(1, canvas.height);
+
+  const proj = mat4Perspective(
+    60 * Math.PI / 180,
+    aspect,
+    0.05,
+    100.0
+  );
 
   const vp = getViewParams();
   const view = mat4LookAt(vp.eye, target, [0, 1, 0]);
