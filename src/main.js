@@ -104,6 +104,8 @@ function applyState(st) {
     uploadPatchMesh(TESS);
   }
 
+  if (typeof st.textureMapping === "boolean") textureMapping = st.textureMapping;
+  if (typeof st.projectTexture === "boolean") projectTexture = st.projectTexture;
   if (typeof st.heightScale === "number") heightScale = st.heightScale;
   if (typeof st.colorMode === "number") colorMode = st.colorMode ? 1 : 0;
   if (typeof st.craterEnable === "boolean") craterEnable = st.craterEnable;
@@ -146,7 +148,11 @@ function applyState(st) {
   tcpCheckbox.checked = tcpEnabled;
   canCheckbox.checked = canEnabled;
   ethCheckbox.checked = ethEnabled;
+  if (textureMappingCheckbox)
+    textureMappingCheckbox.checked = textureMapping;
 
+  if (projectTextureCheckbox)
+    projectTextureCheckbox.checked = projectTexture;
   updateSpiCursor();
   refreshAllSystemStatus();
 }
@@ -245,6 +251,7 @@ uniform sampler2D uCtrl;
 
 uniform mat4  uMVP;
 uniform mat4  uModel;
+uniform mat4 uProjectorVP;
 
 uniform int   uCraterEnable;
 uniform vec2  uCraterCenterXZ;
@@ -254,6 +261,8 @@ uniform float uCraterFeather;
 
 out vec3 vN;
 out vec3 vPos;
+out vec2 vTexUV;
+out vec4 vProjectorPos;
 
 vec4 bern3(float t) {
   float it = 1.0 - t;
@@ -281,6 +290,10 @@ void main() {
   float u = aUV.x;
   float v = aUV.y;
 
+  vTexUV = vec2(
+      (float(px) + u) / float(uPNX),
+      (float(py) + v) / float(uPNY)
+  );
   float sx = 2.0 / float(uPNX);
   float sz = 2.0 / float(uPNY);
 
@@ -351,8 +364,14 @@ void main() {
   vec3 N = normalize(cross(dPdv, dPdu));
 
   vec3 pos = vec3(x, yW, z);
+
   vPos = pos;
   vN = N;
+
+  // Projector coordinates will be enabled once uProjectorVP
+  // is supplied by JavaScript.
+  vProjectorPos =
+    uProjectorVP * vec4(pos, 1.0);
 
   gl_Position = uMVP * vec4(pos, 1.0);
 }
@@ -363,6 +382,12 @@ precision highp float;
 
 in vec3 vN;
 in vec3 vPos;
+in vec2 vTexUV;
+in vec4 vProjectorPos;
+
+uniform int uProjectTexture;
+uniform sampler2D uTexture;
+uniform int uTextureMapping;
 
 uniform vec3 uEye;
 uniform vec3 uBBoxMin;
@@ -406,8 +431,24 @@ void main() {
 
   vec3 rgb = vec3(r, g, b);
   vec3 base = (uColorMode == 1) ? rgb : baseGray;
+
+  if (uTextureMapping != 0) {
+
+      vec2 texUV = vTexUV;
+
+      if (uProjectTexture != 0) {
+          vec3 ndc = vProjectorPos.xyz / vProjectorPos.w;
+
+          texUV = ndc.xy * 0.5 + 0.5;
+      }
+
+      vec3 texColor = texture(uTexture, texUV).rgb;
+      base *= texColor;
+  }
+
   vec3 color = shadeWithBase(base);
   color = pow(color, vec3(1.05));
+
   oColor = vec4(color, 1.0);
 }
 `;
@@ -445,6 +486,10 @@ gl.useProgram(prog);
 const loc = {
   uPNX: gl.getUniformLocation(prog, "uPNX"),
   uPNY: gl.getUniformLocation(prog, "uPNY"),
+  uTexture: gl.getUniformLocation(prog, "uTexture"),
+  uTextureMapping: gl.getUniformLocation(prog, "uTextureMapping"),
+  uProjectorVP: gl.getUniformLocation(prog, "uProjectorVP"),
+  uProjectTexture: gl.getUniformLocation(prog, "uProjectTexture"),
   uHeightScale: gl.getUniformLocation(prog, "uHeightScale"),
   uMVP: gl.getUniformLocation(prog, "uMVP"),
   uModel: gl.getUniformLocation(prog, "uModel"),
@@ -606,6 +651,82 @@ function allocCtrlTex(pnx, pny) {
 }
 allocCtrlTex(PNX, PNY);
 
+// Surface image texture.
+// This will later accept either a static image or live video.
+const surfaceTex = gl.createTexture();
+
+gl.bindTexture(gl.TEXTURE_2D, surfaceTex);
+
+// Start with a valid 1x1 white texture while the image loads.
+gl.texImage2D(
+  gl.TEXTURE_2D,
+  0,
+  gl.RGBA,
+  1,
+  1,
+  0,
+  gl.RGBA,
+  gl.UNSIGNED_BYTE,
+  new Uint8Array([255, 255, 255, 255])
+);
+
+gl.texParameteri(
+  gl.TEXTURE_2D,
+  gl.TEXTURE_MIN_FILTER,
+  gl.LINEAR
+);
+
+gl.texParameteri(
+  gl.TEXTURE_2D,
+  gl.TEXTURE_MAG_FILTER,
+  gl.LINEAR
+);
+
+gl.texParameteri(
+  gl.TEXTURE_2D,
+  gl.TEXTURE_WRAP_S,
+  gl.CLAMP_TO_EDGE
+);
+
+gl.texParameteri(
+  gl.TEXTURE_2D,
+  gl.TEXTURE_WRAP_T,
+  gl.CLAMP_TO_EDGE
+);
+
+const surfaceImage = new Image();
+
+surfaceImage.onload = () => {
+  gl.bindTexture(gl.TEXTURE_2D, surfaceTex);
+
+  gl.pixelStorei(
+    gl.UNPACK_FLIP_Y_WEBGL,
+    true
+  );
+
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA,
+    gl.RGBA,
+    gl.UNSIGNED_BYTE,
+    surfaceImage
+  );
+
+  console.log(
+    `TEXTURE LOADED ${surfaceImage.width}x${surfaceImage.height}`
+  );
+};
+
+surfaceImage.onerror = () => {
+  console.error(
+    "Failed to load surface texture:",
+    surfaceImage.src
+  );
+};
+
+surfaceImage.src = "/texture.jpg";
+
 function updateCtrlTexFromPatches(ctrl16) {
   let p = 0;
   for (let py = 0; py < PNY; py++) {
@@ -639,6 +760,12 @@ let craterCenterXZ = [0.0, 0.0];
 let craterRadius = 0.35;
 let craterDepth  = 0.20;
 let craterFeather = craterRadius * 0.10;
+
+let textureMapping = false;
+let projectTexture = true;
+let projectorVP = null;
+let textureMappingCheckbox = null;
+let projectTextureCheckbox = null;
 
 let dragging = false;
 let lastX = 0, lastY = 0;
@@ -809,6 +936,8 @@ const DEFAULT_STATE = {
   craterRadius: 0.35,
   craterDepth: 0.20,
   craterFeather: 0.035,
+  textureMapping: false,
+  projectTexture: true,
 
   yaw: 0.7,
   pitch: 0.55,
@@ -1286,8 +1415,29 @@ function createSitlPanel() {
       <div style="display:flex; gap:8px; margin-top:10px;">
         <button id="saveStateButton" type="button">Save</button>
         <button id="loadStateButton" type="button">Load</button>
-        <button id="restoreStateButton" type="button">Restore Defaults</button>        
+        <button id="restoreStateButton" type="button">Restore Defaults</button>  
+              
       </div>      
+    </div>
+
+    <div style="margin-bottom:14px;">
+      <div style="font-weight:bold; margin-bottom:6px;">
+        TEXTURE
+      </div>
+
+      <div>
+        <label title="Enable texture mapping on the surface.">
+          <input id="textureMapping" type="checkbox">
+          Texture Mapping
+        </label>
+      </div>
+
+      <div style="margin-top:6px;">
+        <label title="Project texture coordinates onto the surface instead of using mapped surface coordinates.">
+          <input id="projectTexture" type="checkbox">
+          Project Texture
+        </label>
+      </div>
     </div>
 
     <div style="margin-bottom:14px;">
@@ -1391,6 +1541,12 @@ function createSitlPanel() {
   const loadStateButton = document.getElementById("loadStateButton");
   const restoreStateButton = document.getElementById("restoreStateButton");
 
+  textureMappingCheckbox =
+  document.getElementById("textureMapping");
+
+  projectTextureCheckbox =
+  document.getElementById("projectTexture");
+
   sitlModeRadio = document.getElementById("sitlMode");
   sitlModeRadio.checked = systemMode === "sitl";
 
@@ -1426,7 +1582,8 @@ function createSitlPanel() {
   ethCheckbox.checked = ethEnabled;
   canCheckbox.checked = canEnabled;
   uartCheckbox.checked = uartEnabled;
-
+  textureMappingCheckbox.checked = textureMapping;
+  projectTextureCheckbox.checked = projectTexture;
   updateSpiCursor();
 
   monitoringCheckbox.addEventListener("change", () => {
@@ -1486,6 +1643,14 @@ function createSitlPanel() {
     });
 
     refreshAllSystemStatus();
+  });
+
+  textureMappingCheckbox.addEventListener("change", () => {
+  textureMapping = textureMappingCheckbox.checked;
+  });
+
+  projectTextureCheckbox.addEventListener("change", () => {
+    projectTexture = projectTextureCheckbox.checked;
   });
 
   spiCheckbox.addEventListener("change", () => {
@@ -1824,6 +1989,21 @@ window.addEventListener("keydown", (e) => {
     console.log("colorMode:", colorMode ? "RGB cube" : "gray");
   }
 
+  // Texture mapping toggle
+  else if (e.key === "t" || e.key === "T") {
+
+    textureMapping = !textureMapping;
+
+    if (textureMappingCheckbox) {
+      textureMappingCheckbox.checked = textureMapping;
+    }
+
+    console.log(
+      "textureMapping:",
+      textureMapping ? "ON" : "OFF"
+    );
+
+  }
   // Crater toggle
   else if (e.key === "h" || e.key === "H") {
     craterEnable = !craterEnable;
@@ -1896,6 +2076,8 @@ function saveAllState() {
     TESS, heightScale, colorMode, craterEnable,
     craterCenterXZ, craterRadius, craterDepth, craterFeather,
     yaw, pitch, radius,
+    textureMapping,
+    projectTexture,
 
     systemMode,
     monitoringEnabled,
@@ -2020,6 +2202,12 @@ function render() {
   const view = mat4LookAt(vp.eye, target, [0, 1, 0]);
   const mvp = mat4Mul(proj, view);
 
+  // Capture the initial camera as the fixed texture projector.
+  if (projectorVP === null) {
+    projectorVP = mat4Mul(proj, view);
+    console.log("Projector camera captured");
+  }
+
   gl.useProgram(prog);
   gl.uniform1i(loc.uPNX, PNX);
   gl.uniform1i(loc.uPNY, PNY);
@@ -2046,6 +2234,11 @@ function render() {
 
   gl.uniform1f(loc.uHeightScale, effectiveHeightScale);
   gl.uniformMatrix4fv(loc.uMVP, false, mvp);
+  gl.uniformMatrix4fv(
+    loc.uProjectorVP,
+    false,
+    projectorVP
+  );
   gl.uniformMatrix4fv(loc.uModel, false, mat4Identity());
   gl.uniform3f(loc.uEye, vp.eye[0], vp.eye[1], vp.eye[2]);
 
@@ -2072,6 +2265,20 @@ function render() {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, ctrlTex);
   gl.uniform1i(loc.uCtrl, 0);
+
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, surfaceTex);
+  gl.uniform1i(loc.uTexture, 1);
+
+  gl.uniform1i(
+    loc.uTextureMapping,
+    textureMapping ? 1 : 0
+  );
+
+  gl.uniform1i(
+    loc.uProjectTexture,
+    projectTexture ? 1 : 0
+  );
 
   gl.bindVertexArray(vao);
   gl.drawElementsInstanced(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0, PNX * PNY);
