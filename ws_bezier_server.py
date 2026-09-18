@@ -509,7 +509,7 @@ def monitor_I2C(ser, last_i2c_range_mm, i2c_fail_count):
         i2c_fail_count,
         i2c_reply
     )
-
+    
 def read_SPI_data(
     ser,
     last_spi_data
@@ -519,39 +519,68 @@ def read_SPI_data(
     acc_x = acc_y = acc_z = None
     gyr_x = gyr_y = gyr_z = None
 
-    ser.write(b"SPI_DATA\r\n")
+    #
+    # Request the latest BMI270 state cached by the STM32.
+    #
+    # The STM32 is acquiring the BMI270 autonomously at ~100 Hz.
+    # This command does NOT initiate a new SPI transaction.
+    #
+    ser.write(b"BMI270_STATE\r\n")
     ser.flush()
 
     spi_data_reply = read_serial_until(
         ser,
-        "ACC ",
+        "BMI270_STATE ",
         timeout=0.10
     )
 
+    #
+    # Expected response:
+    #
+    # BMI270_STATE ONLINE SAMPLES=38731 ERRORS=0 AGE=6
+    # ACC=590,-2506,3269 GYR=-3,-7,3
+    #
     parts = spi_data_reply.split()
 
     if (
-        len(parts) == 8
-        and parts[0] == "ACC"
-        and parts[4] == "GYR"
+        len(parts) >= 7
+        and parts[0] == "BMI270_STATE"
+        and parts[1] == "ONLINE"
     ):
         try:
-            acc_x = int(parts[1])
-            acc_y = int(parts[2])
-            acc_z = int(parts[3])
-
-            gyr_x = int(parts[5])
-            gyr_y = int(parts[6])
-            gyr_z = int(parts[7])
-
-            last_spi_data = (
-                acc_x, acc_y, acc_z,
-                gyr_x, gyr_y, gyr_z
+            acc_part = next(
+                p for p in parts
+                if p.startswith("ACC=")
             )
 
-            spi_data_valid = True
+            gyr_part = next(
+                p for p in parts
+                if p.startswith("GYR=")
+            )
 
-        except ValueError:
+            acc_values = acc_part[4:].split(",")
+            gyr_values = gyr_part[4:].split(",")
+
+            if (
+                len(acc_values) == 3
+                and len(gyr_values) == 3
+            ):
+                acc_x = int(acc_values[0])
+                acc_y = int(acc_values[1])
+                acc_z = int(acc_values[2])
+
+                gyr_x = int(gyr_values[0])
+                gyr_y = int(gyr_values[1])
+                gyr_z = int(gyr_values[2])
+
+                last_spi_data = (
+                    acc_x, acc_y, acc_z,
+                    gyr_x, gyr_y, gyr_z
+                )
+
+                spi_data_valid = True
+
+        except (ValueError, StopIteration):
             pass
 
     if not spi_data_valid and last_spi_data is not None:
