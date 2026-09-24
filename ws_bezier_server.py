@@ -520,31 +520,26 @@ def read_SPI_data(
     gyr_x = gyr_y = gyr_z = None
 
     #
-    # Request the latest BMI270 state cached by the STM32.
+    # BMI270 data is published autonomously by the STM32.
+    # No Python command is required.
     #
-    # The STM32 is acquiring the BMI270 autonomously at ~100 Hz.
-    # This command does NOT initiate a new SPI transaction.
-    #
-    ser.write(b"BMI270_STATE\r\n")
-    ser.flush()
-
     spi_data_reply = read_serial_until(
         ser,
-        "BMI270_STATE ",
-        timeout=0.10
+        "BMI270_TELEM ",
+        timeout=0.15
     )
 
     #
-    # Expected response:
+    # Expected:
     #
-    # BMI270_STATE ONLINE SAMPLES=38731 ERRORS=0 AGE=6
+    # BMI270_TELEM ONLINE SAMPLES=38731 ERRORS=0 AGE=6
     # ACC=590,-2506,3269 GYR=-3,-7,3
     #
     parts = spi_data_reply.split()
 
     if (
         len(parts) >= 7
-        and parts[0] == "BMI270_STATE"
+        and parts[0] == "BMI270_TELEM"
         and parts[1] == "ONLINE"
     ):
         try:
@@ -912,6 +907,7 @@ async def uart_monitor():
                 last_spi_data = None
                 spi_fail_count = 0
                 spi_was_detected = False
+                last_spi_seen = None
 
                 last_ethernet_ip = None
                 eth_fail_count = 0
@@ -966,6 +962,9 @@ async def uart_monitor():
                         last_spi_data
                     )
 
+                    if spi_data_valid:
+                        last_spi_seen = time.monotonic()
+
                     if MONITORING_ENABLED:
                         if UART_ENABLED:
                             # MONITOR STM32
@@ -1002,23 +1001,16 @@ async def uart_monitor():
                             i2c_range_mm = None
 
                         # MONITOR SPI
-                        # BMI270 presence is determined by its chip ID.
-                        # SPI_DATA remains independent so we can measure
-                        # the actual IMU update rate separately.
+                        # Valid autonomous BMI270 telemetry proves the SPI path is alive.
+                        # Allow brief telemetry gaps without flickering OFFLINE.
                         if SPI_ENABLED:
-                            (
-                                spi_detected,
-                                spi_fail_count,
-                                spi_was_detected,
-                                spi_reply
-                            ) = monitor_SPI_health(
-                                ser,
-                                spi_fail_count,
-                                spi_was_detected
+                            spi_detected = (
+                                last_spi_seen is not None
+                                and time.monotonic() - last_spi_seen < 1.0
                             )
                         else:
-                             spi_detected = False
-
+                            spi_detected = False
+                            
                         # MONITOR ETH
                         if ETH_ENABLED:
                             (
